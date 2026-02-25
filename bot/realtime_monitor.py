@@ -229,7 +229,7 @@ class WalletDataService:
 class AccumulationTracker:
     """Track multiple buys of same token by same wallet for accumulation alerts."""
 
-    def __init__(self, window_minutes: int = 30, min_total_sol: float = 2.0):
+    def __init__(self, window_minutes: int = 30, min_total_sol: float = 1.0):
         self.window_minutes = window_minutes
         self.min_total_sol = min_total_sol
         # Structure: {wallet_address: {token_address: [(sol_amount, timestamp), ...]}}
@@ -366,7 +366,7 @@ class RealTimeMonitor:
         self.price_service = PriceService()
         self.wallet_service = WalletDataService()
         self.smart_money = SmartMoneyTracker()
-        self.accumulation_tracker = AccumulationTracker(window_minutes=30, min_total_sol=2.0)
+        self.accumulation_tracker = AccumulationTracker(window_minutes=30, min_total_sol=1.0)
 
     async def load_qualified_wallets(self):
         """Load qualified wallets from database."""
@@ -505,13 +505,13 @@ class RealTimeMonitor:
             latest['timestamp']
         )
 
-        # Alert if single buy >= 2 SOL OR accumulation detected
-        if sol_amount >= 2.0:
+        # Alert if single buy >= 1 SOL OR accumulation detected
+        if sol_amount >= 1.0:
             # Standard single buy alert
-            logger.info(f"✅ Triggering alert: Single buy >= 2 SOL ({sol_amount:.2f} SOL)")
+            logger.info(f"✅ Triggering alert: Single buy >= 1 SOL ({sol_amount:.2f} SOL)")
             await self._generate_alert(wallet_addr, latest, accumulation_data=None)
         elif accumulation:
-            # Accumulation alert - multiple smaller buys totaling >= 2 SOL
+            # Accumulation alert - multiple smaller buys totaling >= 1 SOL
             logger.info(f"✅ Triggering ACCUMULATION alert: {accumulation['buy_count']} buys, total {accumulation['total_sol']:.1f} SOL")
             await self._generate_alert(wallet_addr, latest, accumulation_data=accumulation)
         else:

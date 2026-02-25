@@ -201,7 +201,7 @@ CREATE TABLE IF NOT EXISTS settings (
 
 -- Default settings
 INSERT OR IGNORE INTO settings (key, value) VALUES
-    ('min_buy_amount', '2.0'),
+    ('min_buy_amount', '1.0'),
     ('alert_age_limit_min', '5'),
     ('last_5_win_rate', '0.6'),
     ('alerts_enabled', 'true'),

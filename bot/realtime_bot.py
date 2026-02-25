@@ -2,7 +2,7 @@
 Real-Time Monitoring Bot
 - ONLY monitors BUY transactions
 - ONLY alerts on transactions < 5 minutes old
-- ONLY alerts if buy amount >= 2 SOL
+- ONLY alerts if buy amount >= 1 SOL
 - Uses correct alert format
 - NO wallet address shown
 """
@@ -27,7 +27,7 @@ from collectors.helius import helius_rotator
 logger = logging.getLogger(__name__)
 
 # Configuration
-MIN_BUY_AMOUNT_SOL = 2.0  # Minimum 2 SOL to alert
+MIN_BUY_AMOUNT_SOL = 1.0  # Minimum 1 SOL to alert
 MAX_TX_AGE_MINUTES = 5    # Only alert on transactions < 5 minutes old
 POLL_INTERVAL = 30        # Seconds between polling cycles
 MIN_LAST_5_WIN_RATE = 0.60  # 60% minimum win rate on last 5 closed trades
@@ -268,7 +268,7 @@ class RealTimeBot:
             logger.info(f"⏭️ Skipping old tx ({age_minutes:.1f}m old > {MAX_TX_AGE_MINUTES}m limit)")
             return
 
-        # 4. Check buy amount (>= 2 SOL)
+        # 4. Check buy amount (>= 1 SOL)
         sol_amount = parsed['sol_amount']
         if sol_amount < MIN_BUY_AMOUNT_SOL:
             logger.info(f"⏭️ Skipping small buy ({sol_amount:.4f} SOL < {MIN_BUY_AMOUNT_SOL} SOL limit)")

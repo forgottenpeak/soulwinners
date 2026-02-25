@@ -205,7 +205,7 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
     ('alert_age_limit_min', '5'),
     ('last_5_win_rate', '0.6'),
     ('alerts_enabled', 'true'),
-    ('discovery_frequency_min', '30'),
+    ('discovery_frequency_min', '10'),
     ('auto_discovery', 'true'),
     ('min_sol_balance', '10'),
     ('min_trades', '15'),

@@ -94,20 +94,46 @@ class AlertFormatter:
 
 🔗 [DexScreener](https://dexscreener.com/solana/{token_address}) | [Birdeye](https://birdeye.so/token/{token_address}?chain=solana) | [Solscan](https://solscan.io/token/{token_address})"""
 
-        # Add last 5 trades if available
+        # Add aggregate wallet performance stats
         if recent_trades and len(recent_trades) > 0:
-            message += "\n\n📈 Last 5 Trades:"
-            for t in recent_trades[:5]:
-                pnl = t.get('pnl_percent', 0)
-                emoji = '🟢' if pnl > 0 else '🔴' if pnl < 0 else '⚪'
-                symbol = t.get('token_symbol', '???')[:10]
-                time_str = t.get('time_ago', '')
-                if pnl == 0:
-                    message += f"\n{emoji} {symbol}: OPEN ({time_str})"
-                else:
-                    message += f"\n{emoji} {symbol}: {pnl:+.1f}% ({time_str})"
+            # Calculate aggregate stats from recent trades
+            total_trades = len(recent_trades)
+            profitable = sum(1 for t in recent_trades if t.get('pnl_percent', 0) > 0)
+            losses = sum(1 for t in recent_trades if t.get('pnl_percent', 0) < 0)
+            open_trades = sum(1 for t in recent_trades if t.get('pnl_percent', 0) == 0)
+
+            pnls = [t.get('pnl_percent', 0) for t in recent_trades if t.get('pnl_percent', 0) != 0]
+            avg_roi = sum(pnls) / len(pnls) if pnls else 0
+            win_rate_recent = profitable / (profitable + losses) if (profitable + losses) > 0 else 0
+
+            # Calculate average hold time
+            hold_times = []
+            for t in recent_trades:
+                if t.get('hold_time_min'):
+                    hold_times.append(t.get('hold_time_min'))
+
+            avg_hold = sum(hold_times) / len(hold_times) if hold_times else 0
+
+            message += f"""
+
+📈 RECENT PERFORMANCE:
+• Avg ROI: {avg_roi:+.0f}%
+• Win Rate: {win_rate_recent*100:.0f}%
+• Record: {profitable}W / {losses}L / {open_trades}O
+• Avg Hold: {self._format_hold_time(avg_hold)}"""
 
         return message
+
+    def _format_hold_time(self, minutes: float) -> str:
+        """Format hold time in readable format."""
+        if minutes <= 0:
+            return "N/A"
+        elif minutes < 60:
+            return f"{int(minutes)}m"
+        elif minutes < 1440:  # Less than a day
+            return f"{minutes/60:.1f}h"
+        else:
+            return f"{minutes/1440:.1f}d"
 
     def format_accumulation_alert(
         self,

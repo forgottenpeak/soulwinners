@@ -1,0 +1,19 @@
+[Unit]
+Description=SoulWinners Insider Detection Pipeline
+After=network.target soulwinners.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Soulwinners
+ExecStart=/root/Soulwinners/venv/bin/python3 run_insider.py
+Restart=always
+RestartSec=30
+StandardOutput=append:/root/Soulwinners/logs/insider.log
+StandardError=append:/root/Soulwinners/logs/insider.log
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

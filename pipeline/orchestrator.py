@@ -62,8 +62,9 @@ class PipelineOrchestrator:
             )
 
             if df_metrics.empty:
-                logger.error("No wallets collected!")
-                self._complete_pipeline_run(run_id, 'failed', error="No wallets collected")
+                logger.error("No wallets collected! Keeping existing pool intact.")
+                self._complete_pipeline_run(run_id, 'failed', error="No wallets collected - pool unchanged")
+                # Return empty df but DON'T touch the database
                 return pd.DataFrame()
 
             logger.info(f"Merged wallets: {len(df_metrics)}")
@@ -81,8 +82,13 @@ class PipelineOrchestrator:
             logger.info("\n[STEP 5/6] Applying quality filters...")
             df_qualified = self.quality_filter.apply_filters(df_ranked)
 
-            # STEP 6: Save to Database
+            # STEP 6: Save to Database (ONLY ADD, NEVER REMOVE)
             logger.info("\n[STEP 6/6] Saving to database...")
+
+            # Safety check: If qualified wallets are very few, log warning
+            if len(df_qualified) < 5:
+                logger.warning(f"Only {len(df_qualified)} wallets qualified - adding to pool without removing any")
+
             added, removed = self._save_qualified_wallets(df_qualified)
 
             # Save full ranked data for analysis
@@ -148,13 +154,24 @@ class PipelineOrchestrator:
         cursor.execute("SELECT wallet_address FROM qualified_wallets")
         current_wallets = set(row[0] for row in cursor.fetchall())
 
+        logger.info(f"Current pool size: {len(current_wallets)} wallets")
+
+        # If no new wallets in df, just keep existing pool unchanged
+        if df.empty:
+            logger.warning("No new qualified wallets in this run - keeping existing pool intact")
+            conn.close()
+            return 0, 0
+
         new_wallets = set(df['wallet_address'].tolist())
+        logger.info(f"New qualified wallets in this run: {len(new_wallets)}")
 
         # Calculate new additions only (NEVER remove wallets)
         added = new_wallets - current_wallets
+        logger.info(f"New wallets to add: {len(added)}")
         # removed = 0 - we keep ALL wallets forever, they just drop in leaderboard
 
         # Insert/update qualified wallets (existing wallets get updated metrics)
+        # This ONLY updates wallets in df, leaving others untouched
         for _, row in df.iterrows():
             cursor.execute("""
                 INSERT OR REPLACE INTO qualified_wallets (

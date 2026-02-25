@@ -116,6 +116,54 @@ class RealAlertSender:
 
         return message
 
+    def format_accumulation_alert(self, alert_data: Dict) -> str:
+        """
+        Format accumulation alert - when wallet buys same token multiple times.
+        """
+        wallet = alert_data['wallet']
+        token = alert_data['token']
+        accumulation = alert_data['accumulation']
+        sol_price = alert_data['sol_price']
+        smart_money = alert_data['smart_money']
+
+        tier = wallet.get('tier', 'Unknown')
+        tier_emoji = self.TIER_EMOJI.get(tier, '⚪')
+        strategy = wallet.get('cluster_name', 'Unknown')
+
+        # Accumulation data
+        total_sol = accumulation.get('total_sol', 0)
+        buy_count = accumulation.get('buy_count', 0)
+        time_span = accumulation.get('time_span_min', 0)
+        buy_amounts = accumulation.get('buy_amounts', [])
+
+        usd_value = total_sol * sol_price
+        token_address = token.get('address', '')
+
+        # Format buy breakdown
+        buy_breakdown = " + ".join(buy_amounts) if buy_amounts else f"{total_sol:.1f}"
+
+        message = f"""
+🔥 **ACCUMULATION DETECTED** 🔥
+⏰ {buy_count} buys in {time_span} minutes
+
+🪙 **Token:** ${token.get('symbol', '???')}
+📍 **CA:** `{token_address}`
+💰 **Total:** {total_sol:.1f} SOL ({buy_breakdown}) ~${usd_value:.0f}
+
+📊 **{strategy}**
+├ Win Rate: {wallet.get('profit_token_ratio', 0):.0%}
+├ ROI: {wallet.get('roi_pct', 0):.0f}%
+├ MC: ${token.get('market_cap', 0)/1e6:.1f}M
+└ Liq: ${token.get('liquidity', 0)/1000:.0f}K
+
+💡 **{tier} wallet accumulating gradually**
+├─ 🔥 {smart_money.get('elite', 0)} Elite wallets in token
+└─ Total smart money: {smart_money.get('total', 0)} wallets
+
+🔗 [DEX](https://dexscreener.com/solana/{token_address}) | [Bird](https://birdeye.so/token/{token_address}?chain=solana) | [Jup](https://jup.ag/swap/SOL-{token_address})"""
+
+        return message
+
     async def send_real_alert(self, alert_data: Dict) -> bool:
         """
         Send alert with real data to Telegram.
@@ -128,7 +176,12 @@ class RealAlertSender:
         ):
             return False
 
-        message = self.format_real_alert(alert_data)
+        # Check if this is an accumulation alert
+        if alert_data.get('accumulation'):
+            message = self.format_accumulation_alert(alert_data)
+            logger.info(f"Formatting ACCUMULATION alert: {alert_data['accumulation']}")
+        else:
+            message = self.format_real_alert(alert_data)
         token = alert_data['token']
         image_url = token.get('image_url', '')
 

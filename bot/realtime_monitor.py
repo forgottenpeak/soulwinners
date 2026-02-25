@@ -218,6 +218,81 @@ class WalletDataService:
             return f"{int(diff / 86400)}d ago"
 
 
+class AccumulationTracker:
+    """Track multiple buys of same token by same wallet for accumulation alerts."""
+
+    def __init__(self, window_minutes: int = 30, min_total_sol: float = 2.0):
+        self.window_minutes = window_minutes
+        self.min_total_sol = min_total_sol
+        # Structure: {wallet_address: {token_address: [(sol_amount, timestamp), ...]}}
+        self.buy_history: Dict[str, Dict[str, List[tuple]]] = {}
+
+    def record_buy(self, wallet: str, token: str, sol_amount: float, timestamp: float) -> Optional[Dict]:
+        """
+        Record a buy and check if it triggers an accumulation alert.
+        Returns accumulation data if threshold reached, None otherwise.
+        """
+        now = datetime.now().timestamp()
+        window_start = now - (self.window_minutes * 60)
+
+        # Initialize wallet and token tracking
+        if wallet not in self.buy_history:
+            self.buy_history[wallet] = {}
+        if token not in self.buy_history[wallet]:
+            self.buy_history[wallet][token] = []
+
+        # Clean old entries outside window
+        self.buy_history[wallet][token] = [
+            (amt, ts) for amt, ts in self.buy_history[wallet][token]
+            if ts > window_start
+        ]
+
+        # Add new buy
+        self.buy_history[wallet][token].append((sol_amount, timestamp))
+
+        # Calculate total
+        buys = self.buy_history[wallet][token]
+        total_sol = sum(amt for amt, _ in buys)
+        buy_count = len(buys)
+
+        # Check if accumulation threshold met
+        if total_sol >= self.min_total_sol and buy_count >= 2:
+            # Calculate time span of accumulation
+            first_buy = min(ts for _, ts in buys)
+            time_span_min = int((now - first_buy) / 60)
+
+            # Format individual buys
+            buy_amounts = [f"{amt:.1f}" for amt, _ in buys]
+
+            return {
+                'total_sol': total_sol,
+                'buy_count': buy_count,
+                'time_span_min': time_span_min,
+                'buy_amounts': buy_amounts,
+                'is_accumulation': True
+            }
+
+        return None
+
+    def cleanup_old_entries(self):
+        """Remove entries older than window to prevent memory bloat."""
+        now = datetime.now().timestamp()
+        window_start = now - (self.window_minutes * 60)
+
+        for wallet in list(self.buy_history.keys()):
+            for token in list(self.buy_history[wallet].keys()):
+                self.buy_history[wallet][token] = [
+                    (amt, ts) for amt, ts in self.buy_history[wallet][token]
+                    if ts > window_start
+                ]
+                # Remove empty token entries
+                if not self.buy_history[wallet][token]:
+                    del self.buy_history[wallet][token]
+            # Remove empty wallet entries
+            if not self.buy_history[wallet]:
+                del self.buy_history[wallet]
+
+
 class SmartMoneyTracker:
     """Track how many smart money wallets are in a token."""
 
@@ -283,6 +358,7 @@ class RealTimeMonitor:
         self.price_service = PriceService()
         self.wallet_service = WalletDataService()
         self.smart_money = SmartMoneyTracker()
+        self.accumulation_tracker = AccumulationTracker(window_minutes=30, min_total_sol=2.0)
 
     async def load_qualified_wallets(self):
         """Load qualified wallets from database."""
@@ -408,10 +484,32 @@ class RealTimeMonitor:
         if tx_age > 60:  # Ignore transactions older than 60 seconds
             return
 
-        # This is a fresh buy - generate alert
-        await self._generate_alert(wallet_addr, latest)
+        sol_amount = latest.get('sol_amount', 0)
+        token_address = latest['token_address']
 
-    async def _generate_alert(self, wallet_addr: str, trade: Dict):
+        logger.info(f"📊 Buy detected: {wallet_addr[:15]}... bought {sol_amount:.2f} SOL of {token_address[:15]}...")
+
+        # Track accumulation
+        accumulation = self.accumulation_tracker.record_buy(
+            wallet_addr,
+            token_address,
+            sol_amount,
+            latest['timestamp']
+        )
+
+        # Alert if single buy >= 2 SOL OR accumulation detected
+        if sol_amount >= 2.0:
+            # Standard single buy alert
+            logger.info(f"✅ Triggering alert: Single buy >= 2 SOL ({sol_amount:.2f} SOL)")
+            await self._generate_alert(wallet_addr, latest, accumulation_data=None)
+        elif accumulation:
+            # Accumulation alert - multiple smaller buys totaling >= 2 SOL
+            logger.info(f"✅ Triggering ACCUMULATION alert: {accumulation['buy_count']} buys, total {accumulation['total_sol']:.1f} SOL")
+            await self._generate_alert(wallet_addr, latest, accumulation_data=accumulation)
+        else:
+            logger.debug(f"⏳ Buy tracked but below threshold: {sol_amount:.2f} SOL (waiting for accumulation)")
+
+    async def _generate_alert(self, wallet_addr: str, trade: Dict, accumulation_data: Optional[Dict] = None):
         """Generate and send alert for a real transaction."""
         wallet_data = self.qualified_wallets.get(wallet_addr)
         if not wallet_data:
@@ -440,6 +538,7 @@ class RealTimeMonitor:
             'actual_balance': actual_balance,
             'recent_trades': recent_trades,
             'smart_money': smart_money,
+            'accumulation': accumulation_data,  # Add accumulation data if present
         }
 
         # Send alert via callback

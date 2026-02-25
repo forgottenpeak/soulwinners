@@ -109,6 +109,72 @@ class AlertFormatter:
 
         return message
 
+    def format_accumulation_alert(
+        self,
+        wallet: Dict,
+        token: Dict,
+        trade: Dict,
+        accumulation: Dict,
+        smart_money: Dict,
+        recent_trades: List[Dict],
+        sol_price: float = 78.0
+    ) -> str:
+        """
+        Format an accumulation alert when wallet buys same token multiple times.
+        """
+        tier = wallet.get('tier', 'Unknown')
+        tier_emoji = '🔥' if tier == 'Elite' else '🟢' if tier == 'High-Quality' else '🟡'
+        strategy = wallet.get('cluster_name', 'Unknown Strategy')
+
+        # Accumulation data
+        total_sol = accumulation.get('total_sol', 0)
+        buy_count = accumulation.get('buy_count', 0)
+        time_span = accumulation.get('time_span_min', 0)
+        buy_amounts = accumulation.get('buy_amounts', [])
+
+        usd_value = total_sol * sol_price
+
+        # Token info
+        token_symbol = token.get('symbol', '???')
+        token_name = token.get('name', 'Unknown')
+        token_address = token.get('address', '')
+
+        # Token metrics
+        market_cap = token.get('market_cap', 0)
+        liquidity = token.get('liquidity', 0)
+
+        # Wallet stats
+        win_rate = wallet.get('win_rate', 0) or wallet.get('profit_token_ratio', 0) or 0
+        roi = wallet.get('roi_pct', 0) or 0
+
+        # Smart money counts
+        elite_count = smart_money.get('elite', 0)
+        total_smart = smart_money.get('total', 0)
+
+        # Format buy breakdown
+        buy_breakdown = " + ".join(buy_amounts) if buy_amounts else str(total_sol)
+
+        message = f"""🔥 ACCUMULATION DETECTED 🔥
+⏰ {buy_count} buys in {time_span} minutes
+
+🪙 Token: ${token_symbol}
+📍 CA: `{token_address}`
+💰 Total: {total_sol:.1f} SOL ({buy_breakdown}) ~${usd_value:.0f}
+
+📊 {strategy}
+├ Win Rate: {win_rate*100:.0f}%
+├ ROI: {roi:.0f}%
+├ MC: {format_number(market_cap)}
+└ Liq: {format_number(liquidity)}
+
+💡 Smart money accumulating gradually
+├─ 🔥 {elite_count} Elite wallets in token
+└─ Total smart money: {total_smart} wallets
+
+🔗 [DEX](https://dexscreener.com/solana/{token_address}) | [Bird](https://birdeye.so/token/{token_address}?chain=solana)"""
+
+        return message
+
     def _format_time_ago(self, timestamp: int) -> str:
         """Format timestamp as 'Xm ago' or 'Xh ago'."""
         if not timestamp:

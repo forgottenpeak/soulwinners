@@ -680,10 +680,13 @@ _Tap buttons below to change settings_""".format(
             tiers = cursor.fetchall()
             conn.close()
 
-            # Calculate next run time (cron runs every 30 min)
+            # Get cron frequency from settings (default 10 min)
+            cron_freq = int(self._get_setting('discovery_frequency_min', '10'))
+
+            # Calculate next run time
             now = datetime.now()
-            minutes_past = now.minute % 30
-            next_run_min = 30 - minutes_past if minutes_past > 0 else 0
+            minutes_past = now.minute % cron_freq
+            next_run_min = cron_freq - minutes_past if minutes_past > 0 else 0
 
             # Build tier breakdown
             tier_text = ""
@@ -717,7 +720,7 @@ _Tap buttons below to change settings_""".format(
             message = f"""🔄 **WALLET DISCOVERY CRON STATUS**
 
 ⏰ **SCHEDULE**
-├─ Frequency: Every 30 minutes
+├─ Frequency: Every {cron_freq} minutes
 ├─ Next Run: in {next_run_min}m
 └─ Last Run: {last_run_time}
 

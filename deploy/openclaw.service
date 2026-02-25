@@ -1,0 +1,19 @@
+[Unit]
+Description=OpenClaw Auto-Trader
+After=network.target soulwinners.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Soulwinners
+ExecStart=/root/Soulwinners/venv/bin/python3 run_openclaw.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/root/Soulwinners/logs/openclaw.log
+StandardError=append:/root/Soulwinners/logs/openclaw.log
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

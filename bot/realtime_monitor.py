@@ -16,6 +16,14 @@ import websockets
 from config.settings import HELIUS_API_KEY, DATABASE_PATH
 from database import get_connection
 
+# OpenClaw integration (optional)
+try:
+    from trader.strategy import SignalQueue
+    from trader.openclaw import receive_soulwinners_signal
+    OPENCLAW_ENABLED = True
+except ImportError:
+    OPENCLAW_ENABLED = False
+
 logger = logging.getLogger(__name__)
 
 # Price APIs
@@ -543,6 +551,15 @@ class RealTimeMonitor:
 
         # Send alert via callback
         await self.alert_callback(alert_data)
+
+        # Send signal to OpenClaw auto-trader (if enabled)
+        if OPENCLAW_ENABLED and wallet_data.get('tier') == 'Elite':
+            try:
+                signal_queue = SignalQueue()
+                receive_soulwinners_signal(alert_data, signal_queue)
+                logger.info(f"Signal sent to OpenClaw: {token_info.get('symbol', '???')}")
+            except Exception as e:
+                logger.debug(f"OpenClaw signal failed: {e}")
 
     async def _get_token_info(self, token_address: str) -> Dict:
         """Get token info from DexScreener."""

@@ -56,6 +56,7 @@ class CommandBot:
         self.application.add_handler(CommandHandler("cron", self.cmd_cron))
         self.application.add_handler(CommandHandler("logs", self.cmd_logs))
         self.application.add_handler(CommandHandler("restart", self.cmd_restart))
+        self.application.add_handler(CommandHandler("trader", self.cmd_trader))
 
         # Register callback handler for inline buttons
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
@@ -814,6 +815,85 @@ _Use buttons below to control cron job_"""
             logger.error(f"Restart command failed: {e}")
             await update.message.reply_text(f"Error: {e}")
 
+    async def cmd_trader(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """OpenClaw auto-trader status."""
+        if not self._is_private(update) or not self._is_admin(update.effective_user.id):
+            return
+
+        logger.info(f"Trader command received from user {update.effective_user.id}")
+
+        try:
+            # Try to import OpenClaw
+            try:
+                from trader.position_manager import PositionManager
+                pm = PositionManager()
+                stats = pm.get_stats()
+                positions = pm.get_open_positions()
+            except ImportError:
+                await update.message.reply_text(
+                    "🤖 **OPENCLAW AUTO-TRADER**\n\n"
+                    "⚠️ OpenClaw module not installed.\n\n"
+                    "To enable auto-trading:\n"
+                    "1. Set `OPENCLAW_PRIVATE_KEY` in .env\n"
+                    "2. Fund wallet with SOL\n"
+                    "3. Run `python3 run_openclaw.py`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+
+            # Format positions
+            pos_text = ""
+            if positions:
+                for p in positions:
+                    emoji = "🟢" if p.pnl_percent >= 0 else "🔴"
+                    pos_text += f"\n{emoji} **{p.token_symbol}**\n"
+                    pos_text += f"├ Entry: {p.entry_sol:.4f} SOL\n"
+                    pos_text += f"├ P&L: {p.pnl_percent:+.1f}%\n"
+                    pos_text += f"├ TP1: {'✅' if p.tp1_hit else '⏳'} | TP2: {'✅' if p.tp2_hit else '⏳'}\n"
+                    pos_text += f"└ Remaining: {p.remaining_percent:.0f}%\n"
+            else:
+                pos_text = "\n└ No open positions"
+
+            # Calculate goal progress bar
+            progress = min(100, stats['progress_percent'])
+            bar_filled = int(progress / 10)
+            bar_empty = 10 - bar_filled
+            progress_bar = "█" * bar_filled + "░" * bar_empty
+
+            message = f"""🤖 **OPENCLAW AUTO-TRADER**
+
+💰 **PORTFOLIO**
+├ Starting: {stats['starting_balance']:.4f} SOL
+├ Current: {stats['current_balance']:.4f} SOL
+├ P&L: {stats['total_pnl_sol']:+.4f} SOL ({stats['total_pnl_percent']:+.1f}%)
+└ Open: {stats['open_positions']}/3 positions
+
+📊 **PERFORMANCE**
+├ Total Trades: {stats['total_trades']}
+├ Winning: {stats['winning_trades']}
+└ Win Rate: {stats['win_rate']:.1f}%
+
+🎯 **GOAL: $10,000**
+├ Progress: {progress:.1f}%
+└ [{progress_bar}]
+
+📍 **OPEN POSITIONS**{pos_text}
+
+_Strategy: Copy Elite Wallets (BES >1000)_"""
+
+            keyboard = [
+                [
+                    InlineKeyboardButton("🔄 Refresh", callback_data="refresh_trader"),
+                ],
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+
+        except Exception as e:
+            logger.error(f"Trader command failed: {e}")
+            await update.message.reply_text(f"Error: {e}")
+
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle inline keyboard button presses."""
         query = update.callback_query
@@ -914,6 +994,10 @@ _Use buttons below to control cron job_"""
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 )
+
+            elif data == "refresh_trader":
+                await query.message.delete()
+                await self.cmd_trader(update, context)
 
         except Exception as e:
             logger.error(f"Callback error: {e}")

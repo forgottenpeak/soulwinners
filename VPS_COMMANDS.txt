@@ -1,0 +1,213 @@
+═══════════════════════════════════════════════════════════════════
+  SOULWINNERS VPS DEPLOYMENT - COPY & PASTE THESE COMMANDS
+═══════════════════════════════════════════════════════════════════
+
+SSH into your VPS:
+──────────────────────────────────────────────────────────────────
+ssh root@80.240.22.200
+
+
+Then run this ONE command:
+──────────────────────────────────────────────────────────────────
+cd /root/Soulwinners && bash deploy/quick_deploy.sh
+
+
+That's it! The script will:
+──────────────────────────────────────────────────────────────────
+✓ Pull latest code from GitHub
+✓ Install all dependencies
+✓ Initialize database tables
+✓ Update MIN_BUY_AMOUNT to 1.0 SOL
+✓ Install systemd services
+✓ Start SoulWinners monitor
+✓ Start Insider detection pipeline
+✓ Verify everything is working
+
+
+After deployment completes, check:
+──────────────────────────────────────────────────────────────────
+# View service status
+systemctl status soulwinners
+systemctl status insider
+
+# View real-time logs
+tail -f /root/Soulwinners/logs/soulwinners.log
+tail -f /root/Soulwinners/logs/insider.log
+
+# Check insider stats
+cd /root/Soulwinners
+./venv/bin/python3 run_insider.py --stats
+./venv/bin/python3 run_insider.py --insiders
+./venv/bin/python3 run_insider.py --clusters
+
+
+Expected Results:
+──────────────────────────────────────────────────────────────────
+Within 5 minutes:
+  • Alerts sent for buys ≥ 1.0 SOL (not 2.0)
+  • InsiderScanner scanning fresh launches
+  • ClusterDetector analyzing wallet connections
+
+Within 1 hour:
+  • 10-30 insider wallets detected
+  • 5-10 wallet clusters identified
+  • Alerts show "Avg ROI" and "Win Rate"
+  • Accumulation alerts for multiple buys
+
+Within 24 hours:
+  • 30-50+ insiders in pool
+  • 10-20+ wallet clusters mapped
+  • High-confidence insiders auto-promoted
+
+
+What Changed:
+──────────────────────────────────────────────────────────────────
+✅ Threshold: 2.0 → 1.0 SOL minimum
+✅ Alert Format: Now shows aggregate stats (not "Last 5 Trades")
+✅ Accumulation: Alerts when wallets make multiple buys in 30 min
+✅ Insider Detection: Auto-discovers elite wallets from launches
+✅ Cluster Detection: Maps wallet networks and connections
+✅ Database: 8 new tables for insider/cluster/trading data
+
+
+Files Deployed:
+──────────────────────────────────────────────────────────────────
+Modified (6 files):
+  • bot/realtime_bot.py         - Fixed threshold to 1.0 SOL
+  • bot/alert_formatter.py      - Aggregate stats
+  • bot/realtime_monitor.py     - Accumulation detection
+  • collectors/__init__.py      - Added launch tracker
+  • pipeline/__init__.py        - Added detectors
+  • database/schema.sql         - Schema updates
+
+New (11 files):
+  • collectors/launch_tracker.py    - Fresh launch tracking (467 lines)
+  • pipeline/insider_detector.py    - Insider detection (351 lines)
+  • pipeline/cluster_detector.py    - Wallet clustering (590 lines)
+  • run_insider.py                  - Insider CLI tool (153 lines)
+  • deploy/deploy_all.sh            - Automated deployment
+  • deploy/insider.service          - Systemd service
+  • deploy/*.sh                     - Helper scripts
+  • DEPLOYMENT.md                   - Full documentation
+
+Already Deployed (OpenClaw - 8 files):
+  • trader/__init__.py
+  • trader/openclaw.py              - Main trader (449 lines)
+  • trader/solana_dex.py            - Jupiter integration (422 lines)
+  • trader/position_manager.py      - Position management (518 lines)
+  • trader/strategy.py              - Trading strategy (339 lines)
+  • run_openclaw.py                 - OpenClaw CLI (153 lines)
+  • deploy/openclaw.service         - Systemd service
+  • deploy/deploy_openclaw.sh       - Deployment script
+
+
+Optional: Enable OpenClaw Auto-Trader
+──────────────────────────────────────────────────────────────────
+# 1. Edit .env file
+nano /root/Soulwinners/.env
+
+# Add these lines:
+OPENCLAW_PRIVATE_KEY=<your-88-char-base58-key>
+OPENCLAW_CHAT_ID=1153491543
+
+# 2. Start service
+systemctl enable openclaw
+systemctl start openclaw
+
+# 3. Check status
+systemctl status openclaw
+tail -f /root/Soulwinners/logs/openclaw.log
+
+# 4. Monitor trading
+./venv/bin/python3 run_openclaw.py --status
+./venv/bin/python3 run_openclaw.py --balance
+
+
+Troubleshooting:
+──────────────────────────────────────────────────────────────────
+# If services fail to start:
+journalctl -u soulwinners --since "10 minutes ago"
+journalctl -u insider --since "10 minutes ago"
+
+# If no alerts received:
+# Check qualified wallets count
+./venv/bin/python3 -c "from database import get_connection; conn = get_connection(); print(conn.execute('SELECT COUNT(*) FROM qualified_wallets').fetchone()[0])"
+
+# Check threshold setting
+./venv/bin/python3 -c "from database import get_connection; conn = get_connection(); print(conn.execute('SELECT value FROM settings WHERE key=\"min_buy_amount\"').fetchone()[0])"
+
+# Restart services
+systemctl restart soulwinners insider
+
+
+Service Management:
+──────────────────────────────────────────────────────────────────
+# View all SoulWinners services
+systemctl list-units | grep -E "(soulwinners|insider|openclaw)"
+
+# Stop all services
+systemctl stop soulwinners insider openclaw
+
+# Restart all services
+systemctl restart soulwinners insider openclaw
+
+# View service logs (real-time)
+journalctl -u soulwinners -f
+journalctl -u insider -f
+journalctl -u openclaw -f
+
+# View service logs (last 100 lines)
+journalctl -u soulwinners -n 100
+journalctl -u insider -n 100
+
+
+Database Inspection:
+──────────────────────────────────────────────────────────────────
+cd /root/Soulwinners
+./venv/bin/python3 << 'EOF'
+from database import get_connection
+conn = get_connection()
+
+# Main tables
+print("=== MAIN TABLES ===")
+print(f"Qualified wallets: {conn.execute('SELECT COUNT(*) FROM qualified_wallets').fetchone()[0]}")
+
+# Insider detection tables
+print("\n=== INSIDER DETECTION ===")
+try:
+    print(f"Insider pool: {conn.execute('SELECT COUNT(*) FROM insider_pool').fetchone()[0]}")
+    print(f"  - High confidence (≥0.7): {conn.execute('SELECT COUNT(*) FROM insider_pool WHERE confidence >= 0.7').fetchone()[0]}")
+    print(f"  - Medium confidence (0.4-0.7): {conn.execute('SELECT COUNT(*) FROM insider_pool WHERE confidence >= 0.4 AND confidence < 0.7').fetchone()[0]}")
+except Exception as e:
+    print(f"Insider pool: Not initialized yet ({e})")
+
+# Cluster detection tables
+print("\n=== CLUSTER DETECTION ===")
+try:
+    print(f"Wallet clusters: {conn.execute('SELECT COUNT(*) FROM wallet_clusters').fetchone()[0]}")
+    print(f"Cluster members: {conn.execute('SELECT COUNT(*) FROM cluster_members').fetchone()[0]}")
+    print(f"Wallet connections: {conn.execute('SELECT COUNT(*) FROM wallet_connections').fetchone()[0]}")
+except Exception as e:
+    print(f"Clusters: Not initialized yet ({e})")
+
+# OpenClaw tables (if enabled)
+print("\n=== OPENCLAW TRADER ===")
+try:
+    print(f"Signal queue: {conn.execute('SELECT COUNT(*) FROM signal_queue').fetchone()[0]}")
+    print(f"Active positions: {conn.execute('SELECT COUNT(*) FROM positions WHERE status = \"open\"').fetchone()[0]}")
+    print(f"Closed positions: {conn.execute('SELECT COUNT(*) FROM positions WHERE status = \"closed\"').fetchone()[0]}")
+except Exception as e:
+    print(f"OpenClaw: Not enabled ({e})")
+
+conn.close()
+EOF
+
+
+Full Documentation:
+──────────────────────────────────────────────────────────────────
+cat /root/Soulwinners/DEPLOYMENT.md
+
+
+═══════════════════════════════════════════════════════════════════
+  END OF DEPLOYMENT GUIDE
+═══════════════════════════════════════════════════════════════════

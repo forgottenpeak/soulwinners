@@ -103,7 +103,7 @@ class LaunchTracker:
     async def _scan_dexscreener_new(self) -> List[FreshToken]:
         """Scan DexScreener for new Solana pairs using pairs endpoint."""
         tokens = []
-        url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+        url = "https://api.dexscreener.com/latest/dex/search?q=solana"
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -185,7 +185,7 @@ class LaunchTracker:
         try:
             # Use DexScreener pairs endpoint with Cloudflare bypass headers
             # This has proper pairCreatedAt timestamps (milliseconds)
-            url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+            url = "https://api.dexscreener.com/latest/dex/search?q=solana"
 
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

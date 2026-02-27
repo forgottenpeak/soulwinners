@@ -49,7 +49,7 @@ class PumpFunCollector(BaseCollector):
 
     async def get_pumpfun_tokens_from_dexscreener(self) -> List[Dict]:
         """Get pump.fun tokens from DexScreener pairs endpoint."""
-        url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+        url = "https://api.dexscreener.com/latest/dex/search?q=solana"
         result = await self.fetch_with_retry(url, headers=CLOUDFLARE_BYPASS_HEADERS)
         if not result:
             return []
@@ -93,7 +93,7 @@ class PumpFunCollector(BaseCollector):
 
         try:
             # Use DexScreener pairs API (has proper pairCreatedAt timestamps)
-            url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+            url = "https://api.dexscreener.com/latest/dex/search?q=solana"
 
             headers = CLOUDFLARE_BYPASS_HEADERS
 

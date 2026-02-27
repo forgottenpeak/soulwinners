@@ -1189,24 +1189,88 @@ class InsiderScanner:
             await asyncio.sleep(self.scan_interval)
 
     async def _scan_cycle(self):
-        """Run one scan cycle."""
+        """Run one scan cycle with smart wallet selection strategy."""
         # 1. Get fresh launches (0-24 hours old - from birth!)
         tokens = await self.tracker.scan_fresh_launches()
         logger.info(f"Found {len(tokens)} fresh tokens (0-24h old)")
 
-        # 2. For each token, get ALL wallets (holders + traders)
+        # 2. For each token, use SMART STRATEGY based on age
         # OPTIMIZATION: Only process top 5 freshest tokens to reduce API costs
         for token in tokens[:5]:  # Process only 5 freshest tokens per cycle
-            # Get ALL wallets: current holders + recent traders
-            # This captures conviction wallets that hold long-term, not just active traders
-            logger.info(f"  {token.symbol}: Scanning all token wallets (holders + traders)...")
-            all_wallets = await self.tracker.get_all_token_wallets(
-                token.address,
-                min_balance=0  # Include anyone with any balance
-            )
-            logger.info(f"  {token.symbol}: Found {len(all_wallets)} unique wallets")
+            # Calculate token age
+            now = datetime.now()
+            age_hours = (now - token.launch_time).total_seconds() / 3600
+            age_minutes = age_hours * 60
 
-            # 3. Analyze each wallet (limit to top 50 per token to avoid overload)
+            logger.info(f"  {token.symbol}: Age {age_hours:.1f}h ({age_minutes:.0f} min)")
+
+            # SMART STRATEGY: Different approach based on token age
+            if age_hours < 1:
+                # FRESH TOKEN (<1 hour): Scan current holders + traders
+                # Reasoning: No one has sold yet, everyone still holding
+                logger.info(f"  {token.symbol}: FRESH token - scanning current holders + traders")
+                all_wallets = await self.tracker.get_all_token_wallets(
+                    token.address,
+                    min_balance=0,
+                    use_historical=True  # Include some recent history
+                )
+                logger.info(f"  {token.symbol}: Found {len(all_wallets)} wallets (current + recent)")
+
+                # Also detect airdrops for fresh tokens (team members)
+                logger.info(f"  Scanning for airdrop recipients (team members)...")
+                airdrop_recipients = await self.airdrop_tracker.detect_airdrops(
+                    token.address,
+                    token.launch_time
+                )
+                logger.info(f"  Found {len(airdrop_recipients)} airdrop recipients")
+
+                # Save airdrop recipients
+                for recipient in airdrop_recipients:
+                    await self.airdrop_tracker.save_airdrop_recipient(recipient)
+                    await self._add_airdrop_wallet_to_pool(recipient.wallet_address)
+
+                    # Track their sells
+                    sell_data = await self.airdrop_tracker.track_airdrop_sells(
+                        recipient.wallet_address,
+                        token.address
+                    )
+
+                    if sell_data['has_sold']:
+                        recipient.has_sold = True
+                        recipient.sold_amount = sell_data['sold_amount']
+                        recipient.sold_at = sell_data['sold_at']
+
+                        if recipient.received_time and sell_data['sold_at']:
+                            recipient.hold_duration_min = int(
+                                (sell_data['sold_at'] - recipient.received_time).total_seconds() / 60
+                            )
+
+                        # Generate alert
+                        alert = await self.airdrop_tracker.generate_sell_alert(recipient, token.symbol)
+                        if alert:
+                            logger.warning(alert)
+
+                        # Update in database
+                        await self.airdrop_tracker.save_airdrop_recipient(recipient)
+
+            else:
+                # OLDER TOKEN (1-24 hours): Scan ALL historical buyers
+                # Reasoning: Current holders = bag holders
+                #            Winners already took profit and left
+                #            We want to find the WINNERS, not bag holders!
+                logger.info(f"  {token.symbol}: OLDER token - scanning ALL historical buyers (not bag holders)")
+                all_wallets = await self.tracker.get_historical_token_holders(
+                    token.address,
+                    limit=1000,
+                    max_days=7
+                )
+                logger.info(f"  {token.symbol}: Found {len(all_wallets)} historical buyers (since creation)")
+                logger.info(f"  Strategy: Skip current holders (bag holders), find winners who took profit")
+
+                # Skip airdrop detection for older tokens (already sold)
+                logger.info(f"  Skipping airdrop detection (older token - airdrops already sold)")
+
+            # 3. Analyze wallets (limit to top 50 per token to avoid overload)
             wallets_to_analyze = all_wallets[:50]
             logger.info(f"  Analyzing {len(wallets_to_analyze)} wallets for patterns...")
 
@@ -1218,49 +1282,10 @@ class InsiderScanner:
                     await self.tracker.save_insider_to_db(wallet, patterns)
                     logger.info(f"    Insider detected: {wallet[:20]}... - {patterns['detected_pattern']}")
 
-            # 5. DETECT AIRDROPS (team members, insiders)
-            logger.info(f"  Scanning for airdrop recipients...")
-            airdrop_recipients = await self.airdrop_tracker.detect_airdrops(
-                token.address,
-                token.launch_time
-            )
+            # Rate limiting between tokens
+            await asyncio.sleep(1)
 
-            logger.info(f"  Found {len(airdrop_recipients)} airdrop recipients")
-
-            # 6. Save airdrop recipients and add to pool immediately (no screening)
-            for recipient in airdrop_recipients:
-                await self.airdrop_tracker.save_airdrop_recipient(recipient)
-
-                # Add to insider pool immediately (airdrop = insider)
-                await self._add_airdrop_wallet_to_pool(recipient.wallet_address)
-
-                # Track their sells
-                sell_data = await self.airdrop_tracker.track_airdrop_sells(
-                    recipient.wallet_address,
-                    token.address
-                )
-
-                if sell_data['has_sold']:
-                    recipient.has_sold = True
-                    recipient.sold_amount = sell_data['sold_amount']
-                    recipient.sold_at = sell_data['sold_at']
-
-                    if recipient.received_time and sell_data['sold_at']:
-                        recipient.hold_duration_min = int(
-                            (sell_data['sold_at'] - recipient.received_time).total_seconds() / 60
-                        )
-
-                    # Generate alert
-                    alert = await self.airdrop_tracker.generate_sell_alert(recipient, token.symbol)
-                    if alert:
-                        logger.warning(alert)
-
-                    # Update in database
-                    await self.airdrop_tracker.save_airdrop_recipient(recipient)
-
-            await asyncio.sleep(1)  # Rate limiting
-
-        # 7. Check for promotion to main pool
+        # 5. Check for promotion to main pool
         await self._check_promotions()
 
     async def _add_airdrop_wallet_to_pool(self, wallet: str):

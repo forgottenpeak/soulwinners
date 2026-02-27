@@ -63,6 +63,63 @@ class PumpFunCollector(BaseCollector):
             return []
         return [t for t in result if t.get('chainId') == 'solana'][:30]
 
+    async def get_fresh_pumpfun_launches(self, max_age_hours: int = 24) -> List[Dict]:
+        """
+        Get fresh Pump.fun launches from birth (0-24 hours old).
+
+        Gets insiders, dev team, and fastest snipers!
+
+        Args:
+            max_age_hours: Maximum age in hours (default 24)
+
+        Returns:
+            List of fresh token launches with metadata
+        """
+        url = "https://frontend-api.pump.fun/coins/latest?limit=100&offset=0&includeNsfw=true"
+
+        # Cloudflare bypass headers for Pump.fun
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Origin': 'https://pump.fun',
+            'Referer': 'https://pump.fun/',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site',
+        }
+
+        result = await self.fetch_with_retry(url, headers=headers)
+        if not result:
+            return []
+
+        # Filter by age: 0 min (birth) - 24 hours
+        cutoff = datetime.now() - timedelta(hours=max_age_hours)
+
+        fresh_tokens = []
+        for coin in result:
+            created_timestamp = coin.get('created_timestamp', 0)
+            if not created_timestamp:
+                continue
+
+            launch_time = datetime.fromtimestamp(created_timestamp / 1000)
+
+            # Scan from birth - get insiders, dev team, fastest snipers!
+            if launch_time > cutoff:
+                fresh_tokens.append({
+                    'tokenAddress': coin.get('mint', ''),
+                    'symbol': coin.get('symbol', '???'),
+                    'name': coin.get('name', 'Unknown'),
+                    'launch_time': launch_time,
+                    'age_minutes': (now - launch_time).total_seconds() / 60,
+                    'complete': coin.get('complete', False),
+                    'raydium_pool': coin.get('raydium_pool'),
+                })
+
+        logger.info(f"Found {len(fresh_tokens)} fresh Pump.fun launches (0-24h from birth)")
+        return fresh_tokens
+
     async def get_token_traders(self, token_address: str) -> List[str]:
         """Get wallets that traded a token using Helius with key rotation and retry."""
         for attempt in range(3):
@@ -243,28 +300,47 @@ class PumpFunCollector(BaseCollector):
 
         return metrics
 
-    async def collect_wallets(self, target_count: int = 500) -> List[Dict[str, Any]]:
-        """Collect profitable pump.fun/meme wallets."""
+    async def collect_wallets(self, target_count: int = 500, use_fresh_launches: bool = True) -> List[Dict[str, Any]]:
+        """
+        Collect profitable pump.fun/meme wallets.
+
+        Args:
+            target_count: Number of wallets to collect
+            use_fresh_launches: If True, scan ultra-fresh launches (10min-24h) instead of trending
+        """
         logger.info(f"Starting Pump.fun wallet collection, target: {target_count}")
 
-        # Get trending Solana tokens from DexScreener
-        tokens = await self.get_trending_solana_tokens()
-        logger.info(f"Found {len(tokens)} trending Solana tokens")
-
-        # Also try to get latest token profiles
-        profiles = await self.get_pumpfun_tokens_from_dexscreener()
-        logger.info(f"Found {len(profiles)} token profiles")
-
-        # Combine token addresses
         token_addresses = set()
-        for t in tokens:
-            addr = t.get('tokenAddress')
-            if addr:
-                token_addresses.add(addr)
-        for p in profiles:
-            addr = p.get('tokenAddress')
-            if addr:
-                token_addresses.add(addr)
+
+        if use_fresh_launches:
+            # NEW: Get fresh launches from birth (0-24 hours old)
+            fresh_tokens = await self.get_fresh_pumpfun_launches(
+                max_age_hours=24
+            )
+            logger.info(f"Found {len(fresh_tokens)} fresh launches (0-24h from birth)")
+
+            for t in fresh_tokens:
+                addr = t.get('tokenAddress')
+                if addr:
+                    token_addresses.add(addr)
+        else:
+            # OLD: Get trending Solana tokens from DexScreener
+            tokens = await self.get_trending_solana_tokens()
+            logger.info(f"Found {len(tokens)} trending Solana tokens")
+
+            # Also try to get latest token profiles
+            profiles = await self.get_pumpfun_tokens_from_dexscreener()
+            logger.info(f"Found {len(profiles)} token profiles")
+
+            # Combine token addresses
+            for t in tokens:
+                addr = t.get('tokenAddress')
+                if addr:
+                    token_addresses.add(addr)
+            for p in profiles:
+                addr = p.get('tokenAddress')
+                if addr:
+                    token_addresses.add(addr)
 
         logger.info(f"Total unique tokens to scan: {len(token_addresses)}")
 

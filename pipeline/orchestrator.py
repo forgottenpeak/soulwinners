@@ -130,8 +130,13 @@ class PipelineOrchestrator:
         # Collect from Pump.fun
         try:
             async with PumpFunCollector() as collector:
-                pumpfun_wallets = await collector.collect_wallets(target_count=target_per_source)
-                logger.info(f"Collected {len(pumpfun_wallets)} pump.fun wallets")
+                # Use fresh launches from birth (0-24 hours old)
+                # Get insiders, dev team, fastest snipers!
+                pumpfun_wallets = await collector.collect_wallets(
+                    target_count=target_per_source,
+                    use_fresh_launches=True  # Scan 0-24h launches from birth, not trending
+                )
+                logger.info(f"Collected {len(pumpfun_wallets)} pump.fun wallets from fresh launches")
         except Exception as e:
             logger.error(f"Pump.fun collection failed: {e}")
 

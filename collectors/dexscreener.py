@@ -14,6 +14,19 @@ from .helius import helius_rotator
 
 logger = logging.getLogger(__name__)
 
+# Headers to bypass Cloudflare protection
+CLOUDFLARE_BYPASS_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Origin': 'https://dexscreener.com',
+    'Referer': 'https://dexscreener.com/',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-site',
+}
+
 # Skip these tokens (stablecoins, wrapped SOL)
 SKIP_TOKENS = {
     'So11111111111111111111111111111111111111112',  # WSOL
@@ -36,7 +49,7 @@ class DexScreenerCollector(BaseCollector):
     async def get_trending_tokens(self) -> List[Dict]:
         """Get trending Solana tokens from DexScreener."""
         url = f"{self.dexscreener_base}/token-boosts/top/v1"
-        result = await self.fetch_with_retry(url)
+        result = await self.fetch_with_retry(url, headers=CLOUDFLARE_BYPASS_HEADERS)
         if not result:
             return []
         return [t for t in result if t.get('chainId') == 'solana'][:50]

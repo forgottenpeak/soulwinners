@@ -1,0 +1,17 @@
+[Unit]
+Description=Ngrok Tunnel for Trading API
+After=network.target trading_api.service
+Requires=trading_api.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Soulwinners
+ExecStart=/usr/local/bin/ngrok http 5000 --log=stdout --log-level=info
+Restart=always
+RestartSec=10
+StandardOutput=append:/root/Soulwinners/logs/ngrok.log
+StandardError=append:/root/Soulwinners/logs/ngrok.log
+
+[Install]
+WantedBy=multi-user.target

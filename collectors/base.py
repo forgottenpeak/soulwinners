@@ -33,6 +33,7 @@ class BaseCollector(ABC):
         url: str,
         method: str = "GET",
         headers: Dict = None,
+        params: Dict = None,
         json_data: Dict = None,
         max_retries: int = 3,
     ) -> Optional[Dict]:
@@ -44,7 +45,7 @@ class BaseCollector(ABC):
                     await asyncio.sleep(0.5)
 
                     async with self.session.request(
-                        method, url, headers=headers, json=json_data, timeout=30
+                        method, url, headers=headers, params=params, json=json_data, timeout=30
                     ) as response:
                         if response.status == 200:
                             return await response.json()

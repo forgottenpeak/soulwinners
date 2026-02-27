@@ -90,8 +90,11 @@ class PumpFunCollector(BaseCollector):
 
             logger.info(f"DexScreener returned {len(result)} token profiles")
 
-            cutoff = datetime.now() - timedelta(hours=max_age_hours)
+            now = datetime.now()
+            cutoff = now - timedelta(hours=max_age_hours)
             seen_mints = set()
+
+            logger.info(f"Filtering tokens: now={now}, cutoff={cutoff} (24h ago)")
 
             for profile in result[:200]:  # Check latest 200
                 try:
@@ -105,29 +108,78 @@ class PumpFunCollector(BaseCollector):
 
                     seen_mints.add(mint)
 
-                    # Parse creation time
-                    created_at = profile.get('createdAt')
+                    # Parse creation time (try multiple fields)
+                    created_at = profile.get('pairCreatedAt') or profile.get('createdAt')
                     if not created_at:
+                        logger.debug(f"Token {mint[:8]}: No creation timestamp")
                         continue
 
-                    launch_time = datetime.fromisoformat(
-                        created_at.replace('Z', '+00:00')
-                    ).replace(tzinfo=None)
-
-                    # Filter by age (0-24 hours)
-                    if launch_time <= cutoff:
+                    # Parse timestamp
+                    try:
+                        # Handle ISO format with Z
+                        if isinstance(created_at, str):
+                            if created_at.endswith('Z'):
+                                created_at = created_at[:-1] + '+00:00'
+                            launch_time = datetime.fromisoformat(created_at).replace(tzinfo=None)
+                        elif isinstance(created_at, (int, float)):
+                            # Unix timestamp (milliseconds)
+                            launch_time = datetime.fromtimestamp(created_at / 1000)
+                        else:
+                            logger.debug(f"Token {mint[:8]}: Invalid timestamp format")
+                            continue
+                    except Exception as e:
+                        logger.debug(f"Token {mint[:8]}: Timestamp parse error: {e}")
                         continue
+
+                    # Calculate age
+                    age_hours = (now - launch_time).total_seconds() / 3600
+                    age_minutes = age_hours * 60
 
                     # Get metadata
                     symbol = profile.get('symbol', mint[:8])
                     name = profile.get('name', 'Unknown')
 
-                    # Check for Raydium
+                    # Debug log
+                    logger.info(f"Token {symbol}: created {age_hours:.1f}h ago (launch_time={launch_time})")
+
+                    # Filter by age (0-24 hours)
+                    if age_hours > max_age_hours:
+                        logger.debug(f"Token {symbol}: Too old ({age_hours:.1f}h)")
+                        continue
+
+                    if age_hours < 0:
+                        logger.warning(f"Token {symbol}: Future timestamp")
+                        continue
+
+                    # Check for Raydium migration
                     url_check = profile.get('url', '')
                     has_raydium = 'raydium' in url_check.lower()
 
-                    now = datetime.now()
-                    age_minutes = (now - launch_time).total_seconds() / 60
+                    # Check migration timing
+                    migration_time = None
+                    hours_since_migration = 0
+                    is_fresh_migration = False
+
+                    if has_raydium:
+                        pair_created = profile.get('pairCreatedAt')
+                        if pair_created:
+                            try:
+                                if isinstance(pair_created, str):
+                                    if pair_created.endswith('Z'):
+                                        pair_created = pair_created[:-1] + '+00:00'
+                                    migration_time = datetime.fromisoformat(pair_created).replace(tzinfo=None)
+                                elif isinstance(pair_created, (int, float)):
+                                    migration_time = datetime.fromtimestamp(pair_created / 1000)
+
+                                hours_since_migration = (now - migration_time).total_seconds() / 3600
+
+                                # Fresh migration = migrated in last 6 hours
+                                if 0 < hours_since_migration <= 6:
+                                    is_fresh_migration = True
+                                    logger.info(f"🎯 FRESH MIGRATION: {symbol} (migrated {hours_since_migration:.1f}h ago)")
+
+                            except Exception as e:
+                                logger.debug(f"Error parsing migration time: {e}")
 
                     fresh_tokens.append({
                         'tokenAddress': mint,
@@ -137,9 +189,12 @@ class PumpFunCollector(BaseCollector):
                         'age_minutes': age_minutes,
                         'complete': has_raydium,
                         'raydium_pool': f"raydium_{mint[:8]}" if has_raydium else None,
+                        'migration_time': migration_time,
+                        'hours_since_migration': hours_since_migration,
+                        'is_fresh_migration': is_fresh_migration,
                     })
 
-                    logger.info(f"Found fresh token: {symbol} ({age_minutes:.1f} min old)")
+                    logger.info(f"Found fresh token: {symbol} (created {age_hours:.1f}h ago)")
 
                     if len(fresh_tokens) >= 100:
                         break
@@ -148,7 +203,11 @@ class PumpFunCollector(BaseCollector):
                     logger.debug(f"Error parsing DexScreener profile: {e}")
                     continue
 
-            logger.info(f"Found {len(fresh_tokens)} fresh launches (0-24h from birth) via DexScreener")
+            # Count fresh migrations
+            fresh_migration_count = sum(1 for t in fresh_tokens if t.get('is_fresh_migration', False))
+
+            logger.info(f"Found {len(fresh_tokens)} fresh launches (0-24h) via DexScreener")
+            logger.info(f"  - Including {fresh_migration_count} fresh migrations (0-6h since Raydium) ⭐")
 
         except Exception as e:
             logger.error(f"DexScreener query failed: {e}")

@@ -249,47 +249,14 @@ class LaunchTracker:
                             symbol = base_token.get('symbol', mint[:8])
                             name = base_token.get('name', 'Unknown')
 
-                            # Debug log
-                            logger.info(f"Token {symbol}: created {age_hours:.1f}h ago (launch_time={launch_time})")
-
-                            # Filter by age (0-24 hours)
-                            # If token is older than 24 hours, skip
-                            if age_hours > self.max_age_hours:
-                                logger.debug(f"Token {symbol}: Too old ({age_hours:.1f}h > {self.max_age_hours}h)")
-                                continue
-
-                            # If token is negative age (future), skip
-                            if age_hours < 0:
-                                logger.warning(f"Token {symbol}: Future timestamp ({age_hours:.1f}h)")
-                                continue
-
-                            # Get token metadata
-                            symbol = profile.get('symbol', mint[:8])
-                            name = profile.get('name', 'Unknown')
-
                             # Check for Raydium migration
-                            url_check = profile.get('url', '')
-                            has_raydium = 'raydium' in url_check.lower()
+                            dex_id = pair.get('dexId', '')
+                            url_check = pair.get('url', '')
+                            has_raydium = 'raydium' in dex_id.lower() or 'raydium' in url_check.lower()
 
-                            # Check migration timing (if has Raydium pair)
-                            migration_time = None
-                            hours_since_migration = 0
-
-                            if has_raydium:
-                                # pairCreatedAt = when Raydium pair was created = migration time
-                                pair_created = profile.get('pairCreatedAt')
-                                if pair_created:
-                                    try:
-                                        if isinstance(pair_created, str):
-                                            if pair_created.endswith('Z'):
-                                                pair_created = pair_created[:-1] + '+00:00'
-                                            migration_time = datetime.fromisoformat(pair_created).replace(tzinfo=None)
-                                        elif isinstance(pair_created, (int, float)):
-                                            migration_time = datetime.fromtimestamp(pair_created / 1000)
-
-                                        hours_since_migration = (now - migration_time).total_seconds() / 3600
-                                    except Exception as e:
-                                        logger.debug(f"Error parsing migration time: {e}")
+                            # Migration timing: pairCreatedAt = when Raydium pair was created
+                            migration_time = launch_time  # For Raydium pairs, this IS the migration time
+                            hours_since_migration = age_hours
 
                             token = FreshToken(
                                 address=mint,
@@ -298,20 +265,19 @@ class LaunchTracker:
                                 launch_time=launch_time,
                                 pump_graduated=has_raydium,
                                 migration_detected=has_raydium,
-                                migration_time=migration_time,
-                                hours_since_migration=hours_since_migration,
+                                migration_time=migration_time if has_raydium else None,
+                                hours_since_migration=hours_since_migration if has_raydium else 0,
                             )
 
                             # Add to appropriate list
                             tokens.append(token)  # Always add to fresh creations
 
-                            # ALSO add to fresh migrations if migrated recently (0-6h)
+                            # ALSO add to fresh migrations if Raydium pair created recently (0-6h)
                             if has_raydium and 0 < hours_since_migration <= 6:
                                 fresh_migrations.append(token)
                                 logger.info(f"🎯 FRESH MIGRATION: {symbol} (migrated {hours_since_migration:.1f}h ago)")
 
-                            age_min = age_hours * 60
-                            logger.info(f"Found fresh token: {symbol} (created {age_hours:.1f}h ago)")
+                            logger.info(f"Found fresh token: {symbol} (created {age_hours:.1f}h ago, dex={dex_id})")
 
                             if len(tokens) >= 100:
                                 break

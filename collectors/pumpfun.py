@@ -48,12 +48,26 @@ class PumpFunCollector(BaseCollector):
         return "pumpfun"
 
     async def get_pumpfun_tokens_from_dexscreener(self) -> List[Dict]:
-        """Get pump.fun tokens from DexScreener."""
-        url = f"{DEXSCREENER_API}/token-profiles/latest/v1"
+        """Get pump.fun tokens from DexScreener pairs endpoint."""
+        url = "https://api.dexscreener.com/latest/dex/pairs/solana"
         result = await self.fetch_with_retry(url, headers=CLOUDFLARE_BYPASS_HEADERS)
         if not result:
             return []
-        return [t for t in result if t.get('chainId') == 'solana'][:50]
+        pairs = result.get('pairs', [])
+        # Convert pairs format to token format
+        tokens = []
+        for pair in pairs[:50]:
+            base_token = pair.get('baseToken', {})
+            tokens.append({
+                'chainId': pair.get('chainId', 'solana'),
+                'tokenAddress': base_token.get('address', ''),
+                'symbol': base_token.get('symbol', '???'),
+                'name': base_token.get('name', 'Unknown'),
+                'pairCreatedAt': pair.get('pairCreatedAt'),
+                'dexId': pair.get('dexId', ''),
+                'url': pair.get('url', ''),
+            })
+        return tokens
 
     async def get_trending_solana_tokens(self) -> List[Dict]:
         """Get trending Solana tokens from DexScreener."""
@@ -67,7 +81,7 @@ class PumpFunCollector(BaseCollector):
         """
         Get fresh Pump.fun launches from birth (0-24 hours old).
 
-        Uses DexScreener with Cloudflare bypass (primary) and Helius (fallback).
+        Uses DexScreener pairs endpoint with proper timestamps (primary) and Helius (fallback).
 
         Args:
             max_age_hours: Maximum age in hours (default 24)
@@ -78,8 +92,8 @@ class PumpFunCollector(BaseCollector):
         fresh_tokens = []
 
         try:
-            # Use DexScreener API (works with Cloudflare bypass)
-            url = "https://api.dexscreener.com/token-profiles/latest/v1"
+            # Use DexScreener pairs API (has proper pairCreatedAt timestamps)
+            url = "https://api.dexscreener.com/latest/dex/pairs/solana"
 
             headers = CLOUDFLARE_BYPASS_HEADERS
 
@@ -88,98 +102,60 @@ class PumpFunCollector(BaseCollector):
                 logger.warning("DexScreener returned no data, trying Helius fallback...")
                 return await self._get_via_helius_fallback(max_age_hours)
 
-            logger.info(f"DexScreener returned {len(result)} token profiles")
+            pairs = result.get('pairs', [])
+            logger.info(f"DexScreener returned {len(pairs)} pairs")
 
             now = datetime.now()
             cutoff = now - timedelta(hours=max_age_hours)
             seen_mints = set()
 
-            logger.info(f"Filtering tokens: now={now}, cutoff={cutoff} (24h ago)")
+            logger.info(f"Filtering tokens: now={now}, cutoff={cutoff} ({max_age_hours}h ago)")
 
-            for profile in result[:200]:  # Check latest 200
+            for pair in pairs[:200]:  # Check latest 200
                 try:
-                    # Only Solana
-                    if profile.get('chainId') != 'solana':
+                    # Get pairCreatedAt timestamp (milliseconds)
+                    pair_created_at = pair.get('pairCreatedAt')
+                    if not pair_created_at:
                         continue
 
-                    mint = profile.get('tokenAddress', '')
-                    if not mint or mint in seen_mints or mint in SKIP_TOKENS:
-                        continue
-
-                    seen_mints.add(mint)
-
-                    # Parse creation time (try multiple fields)
-                    created_at = profile.get('pairCreatedAt') or profile.get('createdAt')
-                    if not created_at:
-                        logger.debug(f"Token {mint[:8]}: No creation timestamp")
-                        continue
-
-                    # Parse timestamp
-                    try:
-                        # Handle ISO format with Z
-                        if isinstance(created_at, str):
-                            if created_at.endswith('Z'):
-                                created_at = created_at[:-1] + '+00:00'
-                            launch_time = datetime.fromisoformat(created_at).replace(tzinfo=None)
-                        elif isinstance(created_at, (int, float)):
-                            # Unix timestamp (milliseconds)
-                            launch_time = datetime.fromtimestamp(created_at / 1000)
-                        else:
-                            logger.debug(f"Token {mint[:8]}: Invalid timestamp format")
-                            continue
-                    except Exception as e:
-                        logger.debug(f"Token {mint[:8]}: Timestamp parse error: {e}")
-                        continue
+                    # Convert milliseconds to datetime
+                    launch_time = datetime.fromtimestamp(pair_created_at / 1000)
 
                     # Calculate age
                     age_hours = (now - launch_time).total_seconds() / 3600
                     age_minutes = age_hours * 60
 
-                    # Get metadata
-                    symbol = profile.get('symbol', mint[:8])
-                    name = profile.get('name', 'Unknown')
+                    # Filter by age (0-24 hours)
+                    if age_hours > max_age_hours or age_hours < 0:
+                        continue
+
+                    # Get token info from baseToken
+                    base_token = pair.get('baseToken', {})
+                    mint = base_token.get('address', '')
+
+                    if not mint or mint in seen_mints or mint in SKIP_TOKENS:
+                        continue
+
+                    seen_mints.add(mint)
+
+                    symbol = base_token.get('symbol', mint[:8])
+                    name = base_token.get('name', 'Unknown')
 
                     # Debug log
                     logger.info(f"Token {symbol}: created {age_hours:.1f}h ago (launch_time={launch_time})")
 
-                    # Filter by age (0-24 hours)
-                    if age_hours > max_age_hours:
-                        logger.debug(f"Token {symbol}: Too old ({age_hours:.1f}h)")
-                        continue
-
-                    if age_hours < 0:
-                        logger.warning(f"Token {symbol}: Future timestamp")
-                        continue
-
                     # Check for Raydium migration
-                    url_check = profile.get('url', '')
-                    has_raydium = 'raydium' in url_check.lower()
+                    dex_id = pair.get('dexId', '')
+                    url_check = pair.get('url', '')
+                    has_raydium = 'raydium' in dex_id.lower() or 'raydium' in url_check.lower()
 
-                    # Check migration timing
-                    migration_time = None
-                    hours_since_migration = 0
-                    is_fresh_migration = False
+                    # Migration timing: for Raydium pairs, pairCreatedAt IS the migration time
+                    migration_time = launch_time if has_raydium else None
+                    hours_since_migration = age_hours if has_raydium else 0
+                    is_fresh_migration = has_raydium and 0 < hours_since_migration <= 6
 
-                    if has_raydium:
-                        pair_created = profile.get('pairCreatedAt')
-                        if pair_created:
-                            try:
-                                if isinstance(pair_created, str):
-                                    if pair_created.endswith('Z'):
-                                        pair_created = pair_created[:-1] + '+00:00'
-                                    migration_time = datetime.fromisoformat(pair_created).replace(tzinfo=None)
-                                elif isinstance(pair_created, (int, float)):
-                                    migration_time = datetime.fromtimestamp(pair_created / 1000)
-
-                                hours_since_migration = (now - migration_time).total_seconds() / 3600
-
-                                # Fresh migration = migrated in last 6 hours
-                                if 0 < hours_since_migration <= 6:
-                                    is_fresh_migration = True
-                                    logger.info(f"🎯 FRESH MIGRATION: {symbol} (migrated {hours_since_migration:.1f}h ago)")
-
-                            except Exception as e:
-                                logger.debug(f"Error parsing migration time: {e}")
+                    if is_fresh_migration:
+                        logger.info(f"🎯 FRESH MIGRATION: {symbol} (migrated {hours_since_migration:.1f}h ago)")
 
                     fresh_tokens.append({
                         'tokenAddress': mint,
@@ -192,9 +168,10 @@ class PumpFunCollector(BaseCollector):
                         'migration_time': migration_time,
                         'hours_since_migration': hours_since_migration,
                         'is_fresh_migration': is_fresh_migration,
+                        'dexId': dex_id,
                     })
 
-                    logger.info(f"Found fresh token: {symbol} (created {age_hours:.1f}h ago)")
+                    logger.info(f"Found fresh token: {symbol} (created {age_hours:.1f}h ago, dex={dex_id})")
 
                     if len(fresh_tokens) >= 100:
                         break

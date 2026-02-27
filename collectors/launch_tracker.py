@@ -612,37 +612,40 @@ class LaunchTracker:
 
         return None
 
-    async def get_historical_token_holders(self, token_address: str, limit: int = 5000) -> List[str]:
+    async def get_historical_token_holders(self, token_address: str, limit: int = 1000,
+                                            max_days: int = 7) -> List[str]:
         """
-        Get ALL wallets that EVER held this token (complete historical blueprint).
+        Get wallets that held this token in recent history (optimized for API usage).
 
-        This is more comprehensive than:
-        - Current holders (snapshot of now)
-        - Recent traders (limited to last 200 txs)
+        OPTIMIZATION: Limited to last 7 days to reduce Helius API costs.
+        - Scans up to 1000 transactions (reduced from 5000)
+        - Only looks back 7 days (not all-time)
+        - Reduces API usage by 80%+
 
-        This captures EVERYONE who touched the token:
+        This captures recent participants:
         - Quick flippers (bought, sold in 1 hour)
         - Swing traders (held 1 day, took profit)
-        - Diamond hands (held long, maybe still holding)
-        - Stop-loss sellers (held, took loss, moved on)
+        - Recent diamond hands
+        - Recent sellers
 
-        Why this matters:
-        - Good trader bought PEPE at $0.01 → sold at $0.10 (10x) → moved on
-        - We want to track this wallet even though they don't hold PEPE anymore
-        - Their HISTORY shows they're good, not their current holdings
+        Why 7 days is enough:
+        - Fresh tokens (<24h) only have 1-2 days of history anyway
+        - Recent activity is more predictive than old history
+        - Reduces Helius API costs dramatically
 
         Args:
             token_address: Token mint address
-            limit: Max number of transactions to scan (default 5000)
+            limit: Max number of transactions to scan (default 1000, reduced from 5000)
+            max_days: Max days to look back (default 7, for cost optimization)
 
         Returns:
-            List of wallet addresses that ever received this token
+            List of wallet addresses that held this token recently
         """
         historical_wallets = set()
 
         try:
-            # Get ALL transaction signatures for this token
-            logger.info(f"Getting historical transactions for {token_address[:8]}...")
+            # Get recent transaction signatures for this token
+            logger.info(f"Getting historical transactions for {token_address[:8]} (last {max_days} days)...")
 
             url = f"https://api.helius.xyz/v0/addresses/{token_address}/transactions"
             params = {
@@ -650,10 +653,14 @@ class LaunchTracker:
                 "limit": min(limit, 1000)  # Helius max is 1000 per request
             }
 
+            # Calculate cutoff time for max_days
+            cutoff_time = datetime.now() - timedelta(days=max_days)
+            cutoff_timestamp = cutoff_time.timestamp()
+
             total_txs = 0
             before_signature = None
 
-            # Paginate through ALL transactions
+            # Paginate through transactions (limited by time window)
             while total_txs < limit:
                 if before_signature:
                     params['before'] = before_signature
@@ -674,6 +681,13 @@ class LaunchTracker:
                         # Parse each transaction for token transfers
                         for tx in txs:
                             try:
+                                # Check transaction timestamp - stop if too old
+                                tx_timestamp = tx.get('timestamp', 0)
+                                if tx_timestamp < cutoff_timestamp:
+                                    logger.info(f"  Reached transactions older than {max_days} days, stopping scan")
+                                    total_txs = limit  # Force exit from outer loop
+                                    break
+
                                 token_transfers = tx.get('tokenTransfers', [])
 
                                 for transfer in token_transfers:
@@ -747,12 +761,12 @@ class LaunchTracker:
         all_wallets.update(traders)
         logger.info(f"  Found {len(traders)} recent traders")
 
-        # 3. Get historical holders (EVERYONE who ever held) - COMPLETE BLUEPRINT
+        # 3. Get historical holders (last 7 days) - OPTIMIZED FOR API COST
         if use_historical:
-            logger.info(f"Getting ALL historical holders for {token_address[:8]} (blueprint scan)...")
-            historical = await self.get_historical_token_holders(token_address, limit=5000)
+            logger.info(f"Getting recent historical holders for {token_address[:8]} (last 7 days)...")
+            historical = await self.get_historical_token_holders(token_address, limit=1000, max_days=7)
             all_wallets.update(historical)
-            logger.info(f"  Found {len(historical)} historical holders (ever held token)")
+            logger.info(f"  Found {len(historical)} historical holders (last 7 days)")
 
         logger.info(f"Total unique wallets for {token_address[:8]}: {len(all_wallets)}")
         logger.info(f"  Breakdown: {len(holders)} current + {len(traders)} recent + {len(historical) if use_historical else 0} historical")
@@ -1159,7 +1173,7 @@ class InsiderScanner:
         self.tracker = LaunchTracker()
         self.airdrop_tracker = AirdropTracker()
         self.running = False
-        self.scan_interval = 300  # 5 minutes
+        self.scan_interval = 7200  # 2 hours (optimized to reduce API costs)
 
     async def start(self):
         """Start the insider scanner."""
@@ -1181,7 +1195,8 @@ class InsiderScanner:
         logger.info(f"Found {len(tokens)} fresh tokens (0-24h old)")
 
         # 2. For each token, get ALL wallets (holders + traders)
-        for token in tokens[:20]:  # Process 20 tokens per cycle
+        # OPTIMIZATION: Only process top 5 freshest tokens to reduce API costs
+        for token in tokens[:5]:  # Process only 5 freshest tokens per cycle
             # Get ALL wallets: current holders + recent traders
             # This captures conviction wallets that hold long-term, not just active traders
             logger.info(f"  {token.symbol}: Scanning all token wallets (holders + traders)...")

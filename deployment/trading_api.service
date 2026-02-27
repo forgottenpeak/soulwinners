@@ -1,0 +1,26 @@
+[Unit]
+Description=SoulWinners Trading API Bridge
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Soulwinners
+Environment="PYTHONPATH=/root/Soulwinners"
+Environment="FLASK_ENV=production"
+ExecStart=/root/Soulwinners/venv/bin/python3 trading_api.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/root/Soulwinners/logs/trading_api.log
+StandardError=append:/root/Soulwinners/logs/trading_api.log
+
+# Security
+PrivateTmp=true
+NoNewPrivileges=true
+
+# Resource limits
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

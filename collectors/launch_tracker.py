@@ -101,64 +101,91 @@ class LaunchTracker:
         return tokens
 
     async def _scan_dexscreener_new(self) -> List[FreshToken]:
-        """Scan DexScreener for new Solana pairs."""
+        """Scan DexScreener for new Solana pairs using pairs endpoint."""
         tokens = []
-        url = "https://api.dexscreener.com/token-profiles/latest/v1"
+        url = "https://api.dexscreener.com/latest/dex/pairs/solana"
 
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=15) as response:
                     if response.status == 200:
                         data = await response.json()
+                        pairs = data.get('pairs', [])
 
-                        cutoff = datetime.now() - timedelta(hours=self.max_age_hours)
+                        logger.info(f"DexScreener pairs endpoint returned {len(pairs)} pairs")
 
-                        for profile in data[:100]:  # Check latest 100
-                            if profile.get('chainId') != 'solana':
-                                continue
+                        now = datetime.now()
+                        cutoff = now - timedelta(hours=self.max_age_hours)
+                        seen_mints = set()
 
-                            # Parse creation time
-                            created_at = profile.get('createdAt')
-                            if not created_at:
-                                continue
+                        for pair in pairs[:100]:  # Check latest 100
+                            try:
+                                # Get pairCreatedAt timestamp (milliseconds)
+                                pair_created_at = pair.get('pairCreatedAt')
+                                if not pair_created_at:
+                                    continue
 
-                            launch_time = datetime.fromisoformat(
-                                created_at.replace('Z', '+00:00')
-                            ).replace(tzinfo=None)
+                                # Convert milliseconds to datetime
+                                launch_time = datetime.fromtimestamp(pair_created_at / 1000)
 
-                            # Scan from birth (0 min) to 24 hours - get insiders & dev wallets!
-                            if launch_time > cutoff:
+                                # Calculate age
+                                age_hours = (now - launch_time).total_seconds() / 3600
+
+                                # Filter by age (0-24 hours)
+                                if age_hours > self.max_age_hours or age_hours < 0:
+                                    continue
+
+                                # Get token info from baseToken
+                                base_token = pair.get('baseToken', {})
+                                mint = base_token.get('address', '')
+
+                                if not mint or mint in seen_mints:
+                                    continue
+
+                                seen_mints.add(mint)
+
+                                symbol = base_token.get('symbol', '???')
+                                name = base_token.get('name', 'Unknown')
+
+                                logger.info(f"Found fresh pair: {symbol} (created {age_hours:.1f}h ago)")
+
                                 token = FreshToken(
-                                    address=profile.get('tokenAddress', ''),
-                                    symbol=profile.get('symbol', '???'),
-                                    name=profile.get('name', 'Unknown'),
+                                    address=mint,
+                                    symbol=symbol,
+                                    name=name,
                                     launch_time=launch_time,
                                 )
                                 tokens.append(token)
 
+                            except Exception as e:
+                                logger.debug(f"Error parsing pair: {e}")
+                                continue
+
+                        logger.info(f"Found {len(tokens)} fresh tokens (0-{self.max_age_hours}h) via DexScreener pairs")
+
         except Exception as e:
-            logger.error(f"DexScreener scan failed: {e}")
+            logger.error(f"DexScreener pairs scan failed: {e}")
 
         return tokens
 
     async def _scan_pumpfun_graduated(self) -> List[FreshToken]:
         """
-        Scan Pump.fun tokens via DexScreener (with Cloudflare bypass).
+        Scan Pump.fun tokens via DexScreener pairs endpoint (with Cloudflare bypass).
 
         Returns TWO types of tokens:
         1. Fresh Creations (0-24h since creation)
         2. Fresh Migrations (0-6h since Raydium migration) - BEST SIGNAL!
 
         Note: Helius program queries don't work well for Pump.fun.
-        Using DexScreener API which has working Cloudflare bypass.
+        Using DexScreener pairs API which has proper timestamps.
         """
         tokens = []
         fresh_migrations = []  # Tokens that just migrated (0-6h)
 
         try:
-            # Use DexScreener API with Cloudflare bypass headers
-            # This works better than Helius for finding new Pump.fun tokens
-            url = "https://api.dexscreener.com/token-profiles/latest/v1"
+            # Use DexScreener pairs endpoint with Cloudflare bypass headers
+            # This has proper pairCreatedAt timestamps (milliseconds)
+            url = "https://api.dexscreener.com/latest/dex/pairs/solana"
 
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -180,7 +207,8 @@ class LaunchTracker:
                         return await self._scan_via_helius_rpc()
 
                     data = await response.json()
-                    logger.info(f"DexScreener returned {len(data)} token profiles")
+                    pairs = data.get('pairs', [])
+                    logger.info(f"DexScreener returned {len(pairs)} pairs")
 
                     now = datetime.now()
                     cutoff = now - timedelta(hours=self.max_age_hours)
@@ -188,48 +216,40 @@ class LaunchTracker:
 
                     logger.info(f"Filtering tokens: now={now}, cutoff={cutoff} (24h ago)")
 
-                    for profile in data[:200]:  # Check latest 200 profiles
+                    for pair in pairs[:200]:  # Check latest 200 pairs
                         try:
-                            # Only process Solana tokens
-                            if profile.get('chainId') != 'solana':
+                            # Get pairCreatedAt timestamp (milliseconds)
+                            pair_created_at = pair.get('pairCreatedAt')
+                            if not pair_created_at:
                                 continue
 
-                            # Get token address
-                            mint = profile.get('tokenAddress', '')
+                            # Convert milliseconds to datetime
+                            launch_time = datetime.fromtimestamp(pair_created_at / 1000)
+
+                            # Calculate age
+                            age_hours = (now - launch_time).total_seconds() / 3600
+
+                            # Filter by age (0-24 hours)
+                            if age_hours > self.max_age_hours:
+                                continue
+
+                            if age_hours < 0:
+                                logger.warning(f"Pair has future timestamp")
+                                continue
+
+                            # Get token info from baseToken
+                            base_token = pair.get('baseToken', {})
+                            mint = base_token.get('address', '')
+
                             if not mint or mint in seen_mints:
                                 continue
 
                             seen_mints.add(mint)
 
-                            # Parse creation time (try multiple fields)
-                            created_at = profile.get('pairCreatedAt') or profile.get('createdAt')
-                            if not created_at:
-                                logger.debug(f"Token {mint[:8]}: No creation timestamp")
-                                continue
-
-                            # Parse timestamp
-                            try:
-                                # Handle ISO format with Z
-                                if isinstance(created_at, str):
-                                    if created_at.endswith('Z'):
-                                        created_at = created_at[:-1] + '+00:00'
-                                    launch_time = datetime.fromisoformat(created_at).replace(tzinfo=None)
-                                elif isinstance(created_at, (int, float)):
-                                    # Unix timestamp (milliseconds)
-                                    launch_time = datetime.fromtimestamp(created_at / 1000)
-                                else:
-                                    logger.debug(f"Token {mint[:8]}: Invalid timestamp format")
-                                    continue
-                            except Exception as e:
-                                logger.debug(f"Token {mint[:8]}: Timestamp parse error: {e}")
-                                continue
-
-                            # Calculate age
-                            age_hours = (now - launch_time).total_seconds() / 3600
-                            age_minutes = age_hours * 60
+                            symbol = base_token.get('symbol', mint[:8])
+                            name = base_token.get('name', 'Unknown')
 
                             # Debug log
-                            symbol = profile.get('symbol', mint[:8])
                             logger.info(f"Token {symbol}: created {age_hours:.1f}h ago (launch_time={launch_time})")
 
                             # Filter by age (0-24 hours)

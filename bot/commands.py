@@ -976,24 +976,24 @@ _Strategy: Copy Elite Wallets (BES >1000)_"""
             else:
                 recent_text = "└─ No recent additions"
 
-            message = f"""🎯 **INSIDER POOL STATISTICS**
+            message = f"""🎯 <b>INSIDER POOL STATISTICS</b>
 
-📊 **OVERVIEW**
+📊 <b>OVERVIEW</b>
 ├─ Total Insiders: {total}
 ├─ Avg Early Entries: {avg_entries:.1f}
 ├─ Avg Win Rate: {avg_wr:.1%}
 └─ Avg Hold Time: {int(avg_hold or 0)}m
 
-🏆 **TIER BREAKDOWN**
+🏆 <b>TIER BREAKDOWN</b>
 {tier_text}
 
-🆕 **RECENT ADDITIONS** (Last 3)
+🆕 <b>RECENT ADDITIONS</b> (Last 3)
 {recent_text}
 
-_Fresh launch snipers detected every 15 minutes_
-_Use /early_birds to see latest catches_"""
+<i>Fresh launch snipers detected every 15 minutes</i>
+<i>Use /early_birds to see latest catches</i>"""
 
-            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text(message, parse_mode=ParseMode.HTML)
 
         except Exception as e:
             logger.error(f"Insiders command failed: {e}", exc_info=True)
@@ -1041,7 +1041,7 @@ _Use /early_birds to see latest catches_"""
             cluster_text = ""
             if top_clusters:
                 for i, (cid, ctype, size, tokens, strength, detected) in enumerate(top_clusters[:3], 1):
-                    cluster_text += f"**{i}. Cluster #{cid}**\n"
+                    cluster_text += f"<b>{i}. Cluster #{cid}</b>\n"
                     cluster_text += f"├─ Type: {ctype}\n"
                     cluster_text += f"├─ Size: {size} wallets\n"
                     cluster_text += f"├─ Shared Tokens: {tokens}\n"
@@ -1050,20 +1050,20 @@ _Use /early_birds to see latest catches_"""
             else:
                 cluster_text = "No clusters detected yet.\n"
 
-            message = f"""🔗 **WALLET CLUSTER ANALYSIS**
+            message = f"""🔗 <b>WALLET CLUSTER ANALYSIS</b>
 
-📊 **OVERVIEW**
+📊 <b>OVERVIEW</b>
 ├─ Total Clusters: {total_clusters}
 ├─ Avg Cluster Size: {avg_size:.1f} wallets
 └─ Total Memberships: {total_memberships}
 
-🏆 **TOP CLUSTERS** (By Size)
+🏆 <b>TOP CLUSTERS</b> (By Size)
 
 {cluster_text}
-_Clusters analyzed every 20 minutes_
-_Look for: Dev teams, insider groups, coordinated buyers_"""
+<i>Clusters analyzed every 20 minutes</i>
+<i>Look for: Dev teams, insider groups, coordinated buyers</i>"""
 
-            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text(message, parse_mode=ParseMode.HTML)
 
         except Exception as e:
             logger.error(f"Clusters command failed: {e}", exc_info=True)
@@ -1115,7 +1115,7 @@ _Look for: Dev teams, insider groups, coordinated buyers_"""
             if top_snipers:
                 for i, (wallet, tier, entries, wr, roi, discovered) in enumerate(top_snipers[:5], 1):
                     short_addr = f"{wallet[:6]}...{wallet[-4:]}"
-                    sniper_text += f"**{i}. {short_addr}** ({tier})\n"
+                    sniper_text += f"<b>{i}. {short_addr}</b> ({tier})\n"
                     sniper_text += f"├─ Early Entries: {entries}\n"
                     sniper_text += f"├─ Win Rate: {wr:.1%}\n"
                     sniper_text += f"├─ Avg ROI: {roi:+.1f}%\n"
@@ -1123,21 +1123,21 @@ _Look for: Dev teams, insider groups, coordinated buyers_"""
             else:
                 sniper_text = "No early birds detected yet.\n"
 
-            message = f"""🐦 **FRESH LAUNCH SNIPERS**
+            message = f"""🐦 <b>FRESH LAUNCH SNIPERS</b>
 
-📊 **STATISTICS**
+📊 <b>STATISTICS</b>
 ├─ Total Early Birds: {total}
 ├─ Avg Early Entries: {avg_entries:.1f}
 ├─ Avg Win Rate: {avg_wr:.1%}
 └─ Max Entries: {max_entries}
 
-🏆 **TOP SNIPERS** (Most Early Entries)
+🏆 <b>TOP SNIPERS</b> (Most Early Entries)
 
 {sniper_text}
-_These wallets consistently buy within minutes of token creation_
-_Updated every 15 minutes via insider detection_"""
+<i>These wallets consistently buy within minutes of token creation</i>
+<i>Updated every 15 minutes via insider detection</i>"""
 
-            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text(message, parse_mode=ParseMode.HTML)
 
         except Exception as e:
             logger.error(f"Early birds command failed: {e}", exc_info=True)

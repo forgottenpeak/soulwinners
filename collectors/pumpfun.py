@@ -67,7 +67,7 @@ class PumpFunCollector(BaseCollector):
         """
         Get fresh Pump.fun launches from birth (0-24 hours old).
 
-        Gets insiders, dev team, and fastest snipers!
+        Uses Helius blockchain queries to bypass Cloudflare blocking.
 
         Args:
             max_age_hours: Maximum age in hours (default 24)
@@ -75,50 +75,135 @@ class PumpFunCollector(BaseCollector):
         Returns:
             List of fresh token launches with metadata
         """
-        url = "https://frontend-api.pump.fun/coins/latest?limit=100&offset=0&includeNsfw=true"
-
-        # Cloudflare bypass headers for Pump.fun
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Origin': 'https://pump.fun',
-            'Referer': 'https://pump.fun/',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-site',
-        }
-
-        result = await self.fetch_with_retry(url, headers=headers)
-        if not result:
-            return []
-
-        # Filter by age: 0 min (birth) - 24 hours
-        cutoff = datetime.now() - timedelta(hours=max_age_hours)
-
         fresh_tokens = []
-        for coin in result:
-            created_timestamp = coin.get('created_timestamp', 0)
-            if not created_timestamp:
-                continue
 
-            launch_time = datetime.fromtimestamp(created_timestamp / 1000)
+        # Pump.fun program ID (bonding curve program)
+        PUMPFUN_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
 
-            # Scan from birth - get insiders, dev team, fastest snipers!
-            if launch_time > cutoff:
-                fresh_tokens.append({
-                    'tokenAddress': coin.get('mint', ''),
-                    'symbol': coin.get('symbol', '???'),
-                    'name': coin.get('name', 'Unknown'),
-                    'launch_time': launch_time,
-                    'age_minutes': (now - launch_time).total_seconds() / 60,
-                    'complete': coin.get('complete', False),
-                    'raydium_pool': coin.get('raydium_pool'),
-                })
+        try:
+            # Use Helius to get recent Pump.fun transactions
+            api_key = await self.rotator.get_key()
+            url = f"https://api.helius.xyz/v0/addresses/{PUMPFUN_PROGRAM}/transactions"
+            params = {
+                "api-key": api_key,
+                "limit": 1000,
+            }
 
-        logger.info(f"Found {len(fresh_tokens)} fresh Pump.fun launches (0-24h from birth)")
+            result = await self.fetch_with_retry(url, params=params)
+            if not result:
+                logger.warning("Helius returned no transactions for Pump.fun program")
+                return []
+
+            logger.info(f"Helius returned {len(result)} Pump.fun transactions")
+
+            cutoff = datetime.now() - timedelta(hours=max_age_hours)
+            seen_mints = set()
+
+            for tx in result:
+                try:
+                    timestamp = tx.get('timestamp', 0)
+                    if not timestamp:
+                        continue
+
+                    launch_time = datetime.fromtimestamp(timestamp)
+
+                    # Filter by age (0-24 hours)
+                    if launch_time <= cutoff:
+                        continue
+
+                    # Extract token mints from transaction
+                    token_transfers = tx.get('tokenTransfers', [])
+                    if not token_transfers:
+                        continue
+
+                    for transfer in token_transfers:
+                        mint = transfer.get('mint', '')
+
+                        if mint in seen_mints or not mint:
+                            continue
+
+                        # Skip stablecoins
+                        if mint in SKIP_TOKENS:
+                            continue
+
+                        seen_mints.add(mint)
+
+                        # Get token metadata
+                        symbol = await self._get_token_metadata(mint, api_key)
+
+                        # Check for Raydium migration
+                        raydium_pool = await self._check_raydium_pool(mint, api_key)
+
+                        now = datetime.now()
+                        age_minutes = (now - launch_time).total_seconds() / 60
+
+                        fresh_tokens.append({
+                            'tokenAddress': mint,
+                            'symbol': symbol or mint[:8],
+                            'name': symbol or 'Unknown',
+                            'launch_time': launch_time,
+                            'age_minutes': age_minutes,
+                            'complete': raydium_pool is not None,
+                            'raydium_pool': raydium_pool,
+                        })
+
+                        logger.info(f"Found Pump.fun token: {symbol or mint[:8]} ({age_minutes:.1f} min old)")
+
+                        if len(fresh_tokens) >= 100:
+                            break
+
+                except Exception as e:
+                    logger.debug(f"Error parsing Pump.fun transaction: {e}")
+                    continue
+
+                if len(fresh_tokens) >= 100:
+                    break
+
+            logger.info(f"Found {len(fresh_tokens)} fresh Pump.fun launches (0-24h from birth) via Helius")
+
+        except Exception as e:
+            logger.error(f"Helius Pump.fun query failed: {e}")
+
         return fresh_tokens
+
+    async def _get_token_metadata(self, mint: str, api_key: str) -> str:
+        """Get token symbol/name via Helius."""
+        try:
+            url = f"https://api.helius.xyz/v0/token-metadata"
+            params = {"api-key": api_key, "mint": mint}
+
+            result = await self.fetch_with_retry(url, params=params)
+            if result:
+                return result.get('symbol', mint[:8])
+        except:
+            pass
+
+        return mint[:8]
+
+    async def _check_raydium_pool(self, mint: str, api_key: str) -> str:
+        """Check if token has Raydium pool via blockchain query."""
+        try:
+            RAYDIUM_PROGRAM = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+
+            url = f"https://api.helius.xyz/v0/addresses/{mint}/transactions"
+            params = {"api-key": api_key, "limit": 50}
+
+            result = await self.fetch_with_retry(url, params=params)
+            if not result:
+                return None
+
+            for tx in result:
+                # Check for Raydium program in instructions
+                instructions = tx.get('instructions', [])
+                for instr in instructions:
+                    if instr.get('programId') == RAYDIUM_PROGRAM:
+                        # Found Raydium pool creation
+                        return f"raydium_{mint[:8]}"
+
+        except:
+            pass
+
+        return None
 
     async def get_token_traders(self, token_address: str) -> List[str]:
         """Get wallets that traded a token using Helius with key rotation and retry."""

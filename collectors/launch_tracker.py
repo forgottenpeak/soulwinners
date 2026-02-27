@@ -137,53 +137,168 @@ class LaunchTracker:
         return tokens
 
     async def _scan_pumpfun_graduated(self) -> List[FreshToken]:
-        """Scan Pump.fun for fresh launches from birth (0-24 hours old)."""
-        tokens = []
-        # Use /coins/latest for ALL fresh launches (not just graduated)
-        url = "https://frontend-api.pump.fun/coins/latest?limit=100&offset=0&includeNsfw=true"
+        """
+        Scan Pump.fun tokens via Helius blockchain queries (bypasses Cloudflare).
 
-        # Cloudflare bypass headers
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Origin': 'https://pump.fun',
-            'Referer': 'https://pump.fun/',
-        }
+        Query Solana blockchain directly to find:
+        1. New token mints (last 24h)
+        2. Pump.fun program tokens
+        3. Raydium migrations
+        """
+        tokens = []
+
+        # Pump.fun program ID (bonding curve program)
+        PUMPFUN_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+
+        # Raydium AMM program (for detecting migrations)
+        RAYDIUM_PROGRAM = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 
         try:
+            # Get recent signatures for Pump.fun program
+            url = f"https://api.helius.xyz/v0/addresses/{PUMPFUN_PROGRAM}/transactions"
+            params = {
+                "api-key": self.api_key,
+                "limit": 1000,  # Get more transactions to find token mints
+                "type": "TOKEN_MINT"  # Filter for mint events
+            }
+
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, timeout=15) as response:
+                async with session.get(url, params=params, timeout=30) as response:
+                    if response.status != 200:
+                        logger.error(f"Helius API error: {response.status}")
+                        return tokens
+
+                    data = await response.json()
+                    logger.info(f"Helius returned {len(data)} Pump.fun transactions")
+
+                    cutoff = datetime.now() - timedelta(hours=self.max_age_hours)
+                    seen_mints = set()
+
+                    for tx in data:
+                        try:
+                            # Get timestamp
+                            timestamp = tx.get('timestamp', 0)
+                            if not timestamp:
+                                continue
+
+                            launch_time = datetime.fromtimestamp(timestamp)
+
+                            # Filter by age (0-24 hours)
+                            if launch_time <= cutoff:
+                                continue
+
+                            # Extract token mint from transaction
+                            token_transfers = tx.get('tokenTransfers', [])
+                            if not token_transfers:
+                                continue
+
+                            for transfer in token_transfers:
+                                mint = transfer.get('mint', '')
+
+                                # Skip if already seen
+                                if mint in seen_mints or not mint:
+                                    continue
+
+                                seen_mints.add(mint)
+
+                                # Check if this is a new mint (creation)
+                                # New mints have large initial transfers TO the bonding curve
+                                to_user = transfer.get('toUserAccount', '')
+                                amount = transfer.get('tokenAmount', 0)
+
+                                if amount > 0:  # Significant initial mint
+                                    # Try to get token metadata
+                                    symbol = await self._get_token_symbol(mint)
+
+                                    # Check for Raydium migration
+                                    migration_detected = await self._check_raydium_migration(mint)
+
+                                    token = FreshToken(
+                                        address=mint,
+                                        symbol=symbol or mint[:8],
+                                        name=symbol or 'Unknown',
+                                        launch_time=launch_time,
+                                        pump_graduated=migration_detected,
+                                        migration_detected=migration_detected,
+                                    )
+                                    tokens.append(token)
+
+                                    logger.info(f"Found Pump.fun token: {symbol or mint[:8]} (age: {(datetime.now() - launch_time).total_seconds() / 60:.1f} min)")
+
+                                    # Limit results
+                                    if len(tokens) >= 100:
+                                        break
+
+                        except Exception as e:
+                            logger.debug(f"Error parsing transaction: {e}")
+                            continue
+
+                        if len(tokens) >= 100:
+                            break
+
+            logger.info(f"Found {len(tokens)} Pump.fun tokens via Helius blockchain query")
+
+        except Exception as e:
+            logger.error(f"Helius blockchain query failed: {e}")
+
+        return tokens
+
+    async def _get_token_symbol(self, mint: str) -> str:
+        """Get token symbol/name from mint address via Helius."""
+        try:
+            url = f"https://api.helius.xyz/v0/token-metadata"
+            params = {
+                "api-key": self.api_key,
+                "mint": mint
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get('symbol', mint[:8])
+        except:
+            pass
+
+        return mint[:8]
+
+    async def _check_raydium_migration(self, mint: str) -> bool:
+        """
+        Check if token has migrated to Raydium via blockchain query.
+
+        Migration = Raydium pool creation for this token
+        """
+        try:
+            # Get recent transactions for this token mint
+            url = f"https://api.helius.xyz/v0/addresses/{mint}/transactions"
+            params = {
+                "api-key": self.api_key,
+                "limit": 50
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=10) as response:
                     if response.status == 200:
                         data = await response.json()
 
-                        cutoff = datetime.now() - timedelta(hours=self.max_age_hours)
+                        # Look for Raydium program interactions
+                        RAYDIUM_PROGRAM = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 
-                        for coin in data:
-                            # Parse creation timestamp
-                            created_timestamp = coin.get('created_timestamp', 0)
-                            if not created_timestamp:
-                                continue
+                        for tx in data:
+                            account_data = tx.get('accountData', [])
+                            for account in account_data:
+                                if account.get('account') == RAYDIUM_PROGRAM:
+                                    return True
 
-                            launch_time = datetime.fromtimestamp(created_timestamp / 1000)
+                            # Also check instructions
+                            instructions = tx.get('instructions', [])
+                            for instr in instructions:
+                                if instr.get('programId') == RAYDIUM_PROGRAM:
+                                    return True
+        except:
+            pass
 
-                            # Scan from birth (0 min) - get insiders, dev team, fastest snipers!
-                            if launch_time > cutoff:
-                                token = FreshToken(
-                                    address=coin.get('mint', ''),
-                                    symbol=coin.get('symbol', '???'),
-                                    name=coin.get('name', 'Unknown'),
-                                    launch_time=launch_time,
-                                    pump_graduated=coin.get('complete', False),
-                                    migration_detected=coin.get('raydium_pool') is not None,
-                                )
-                                tokens.append(token)
-
-        except Exception as e:
-            logger.error(f"Pump.fun scan failed: {e}")
-
-        return tokens
+        return False
 
     async def get_first_buyers(self, token_address: str, limit: int = 100,
                                min_minutes: int = 0, max_minutes: int = 30) -> List[str]:

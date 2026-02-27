@@ -48,15 +48,22 @@ class PumpFunCollector(BaseCollector):
         return "pumpfun"
 
     async def get_pumpfun_tokens_from_dexscreener(self) -> List[Dict]:
-        """Get pump.fun tokens from DexScreener pairs endpoint."""
-        url = "https://api.dexscreener.com/latest/dex/search?q=solana"
+        """Get pump.fun tokens from DexScreener (search for Raydium pairs)."""
+        url = "https://api.dexscreener.com/latest/dex/search?q=raydium"
         result = await self.fetch_with_retry(url, headers=CLOUDFLARE_BYPASS_HEADERS)
         if not result:
             return []
         pairs = result.get('pairs', [])
-        # Convert pairs format to token format
+        # Convert pairs format to token format, filter for Solana + Raydium
         tokens = []
         for pair in pairs[:50]:
+            # Only Solana + Raydium pairs
+            if pair.get('chainId') != 'solana':
+                continue
+            dex_id = pair.get('dexId', '')
+            if 'raydium' not in dex_id.lower():
+                continue
+
             base_token = pair.get('baseToken', {})
             tokens.append({
                 'chainId': pair.get('chainId', 'solana'),
@@ -64,7 +71,7 @@ class PumpFunCollector(BaseCollector):
                 'symbol': base_token.get('symbol', '???'),
                 'name': base_token.get('name', 'Unknown'),
                 'pairCreatedAt': pair.get('pairCreatedAt'),
-                'dexId': pair.get('dexId', ''),
+                'dexId': dex_id,
                 'url': pair.get('url', ''),
             })
         return tokens
@@ -92,8 +99,9 @@ class PumpFunCollector(BaseCollector):
         fresh_tokens = []
 
         try:
-            # Use DexScreener pairs API (has proper pairCreatedAt timestamps)
-            url = "https://api.dexscreener.com/latest/dex/search?q=solana"
+            # Use DexScreener search for Raydium pairs (has proper pairCreatedAt timestamps)
+            # Search for "raydium" to get fresh Pump.fun graduations (not all Solana tokens)
+            url = "https://api.dexscreener.com/latest/dex/search?q=raydium"
 
             headers = CLOUDFLARE_BYPASS_HEADERS
 
@@ -113,6 +121,15 @@ class PumpFunCollector(BaseCollector):
 
             for pair in pairs[:200]:  # Check latest 200
                 try:
+                    # Only process Solana chain
+                    if pair.get('chainId') != 'solana':
+                        continue
+
+                    # Only process Raydium DEX (where Pump.fun tokens graduate)
+                    dex_id = pair.get('dexId', '')
+                    if 'raydium' not in dex_id.lower():
+                        continue
+
                     # Get pairCreatedAt timestamp (milliseconds)
                     pair_created_at = pair.get('pairCreatedAt')
                     if not pair_created_at:

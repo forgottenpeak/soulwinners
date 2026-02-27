@@ -48,6 +48,8 @@ class InsiderDetector:
     def __init__(self):
         self.launch_tracker = LaunchTracker()
         self.cluster_detector = ClusterDetector()
+        from collectors.launch_tracker import AirdropTracker
+        self.airdrop_tracker = AirdropTracker()
 
     async def analyze_wallet(self, wallet: str) -> Optional[InsiderProfile]:
         """
@@ -146,6 +148,11 @@ class InsiderDetector:
         """Detect specific insider behaviors."""
         behaviors = []
 
+        # Check for airdrop history (team member / insider signal)
+        airdrop_count = await self._check_airdrop_history(wallet)
+        if airdrop_count > 0:
+            behaviors.append(f"Received {airdrop_count} airdrops (team/insider)")
+
         # Check if wallet is active at unusual hours (bot behavior)
         # Check if wallet follows specific elite wallets (copy trader)
         # Check if wallet only buys tokens that moon (insider info)
@@ -154,6 +161,29 @@ class InsiderDetector:
         # Placeholder for now
 
         return behaviors
+
+    async def _check_airdrop_history(self, wallet: str) -> int:
+        """
+        Check if wallet has received airdrops (team/insider signal).
+
+        Returns: Number of airdrops received
+        """
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("""
+                SELECT COUNT(*) FROM airdrop_insiders
+                WHERE wallet_address = ?
+            """, (wallet,))
+
+            row = cursor.fetchone()
+            return row[0] if row else 0
+
+        except:
+            return 0
+        finally:
+            conn.close()
 
     async def scan_and_detect(self, wallets: List[str]) -> List[InsiderProfile]:
         """Scan multiple wallets and return detected insiders."""
@@ -172,6 +202,54 @@ class InsiderDetector:
                 logger.error(f"Failed to analyze {wallet[:15]}...: {e}")
 
         return insiders
+
+    async def get_airdrop_stats(self, wallet: str) -> Dict:
+        """
+        Get airdrop statistics for a wallet.
+
+        Returns:
+        - Total airdrops received
+        - Tokens received
+        - Sell behavior
+        - Average hold time
+        """
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        stats = {
+            'airdrop_count': 0,
+            'total_tokens_received': 0,
+            'tokens_sold': 0,
+            'avg_hold_duration_min': 0,
+            'sell_rate': 0,
+        }
+
+        try:
+            cursor.execute("""
+                SELECT
+                    COUNT(*) as airdrop_count,
+                    SUM(token_amount) as total_received,
+                    SUM(sold_amount) as total_sold,
+                    AVG(hold_duration_min) as avg_hold,
+                    SUM(CASE WHEN has_sold = 1 THEN 1 ELSE 0 END) * 1.0 / COUNT(*) as sell_rate
+                FROM airdrop_insiders
+                WHERE wallet_address = ?
+            """, (wallet,))
+
+            row = cursor.fetchone()
+            if row:
+                stats['airdrop_count'] = row[0] or 0
+                stats['total_tokens_received'] = row[1] or 0
+                stats['tokens_sold'] = row[2] or 0
+                stats['avg_hold_duration_min'] = row[3] or 0
+                stats['sell_rate'] = row[4] or 0
+
+        except Exception as e:
+            logger.error(f"Failed to get airdrop stats: {e}")
+        finally:
+            conn.close()
+
+        return stats
 
     async def save_insider(self, profile: InsiderProfile):
         """Save insider profile to database."""

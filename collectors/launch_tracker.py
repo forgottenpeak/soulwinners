@@ -138,108 +138,185 @@ class LaunchTracker:
 
     async def _scan_pumpfun_graduated(self) -> List[FreshToken]:
         """
-        Scan Pump.fun tokens via Helius blockchain queries (bypasses Cloudflare).
+        Scan Pump.fun tokens via DexScreener (with Cloudflare bypass).
 
-        Query Solana blockchain directly to find:
-        1. New token mints (last 24h)
-        2. Pump.fun program tokens
-        3. Raydium migrations
+        Note: Helius program queries don't work well for Pump.fun.
+        Using DexScreener API which has working Cloudflare bypass.
         """
         tokens = []
 
-        # Pump.fun program ID (bonding curve program)
-        PUMPFUN_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
-
-        # Raydium AMM program (for detecting migrations)
-        RAYDIUM_PROGRAM = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
-
         try:
-            # Get recent signatures for Pump.fun program
-            url = f"https://api.helius.xyz/v0/addresses/{PUMPFUN_PROGRAM}/transactions"
-            params = {
-                "api-key": self.api_key,
-                "limit": 1000,  # Get more transactions to find token mints
-                "type": "TOKEN_MINT"  # Filter for mint events
+            # Use DexScreener API with Cloudflare bypass headers
+            # This works better than Helius for finding new Pump.fun tokens
+            url = "https://api.dexscreener.com/token-profiles/latest/v1"
+
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Origin': 'https://dexscreener.com',
+                'Referer': 'https://dexscreener.com/',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-site',
             }
 
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, timeout=30) as response:
+                async with session.get(url, headers=headers, timeout=30) as response:
                     if response.status != 200:
-                        logger.error(f"Helius API error: {response.status}")
-                        return tokens
+                        logger.error(f"DexScreener API error: {response.status}")
+                        # Try Helius RPC as fallback
+                        return await self._scan_via_helius_rpc()
 
                     data = await response.json()
-                    logger.info(f"Helius returned {len(data)} Pump.fun transactions")
+                    logger.info(f"DexScreener returned {len(data)} token profiles")
 
                     cutoff = datetime.now() - timedelta(hours=self.max_age_hours)
                     seen_mints = set()
 
+                    for profile in data[:200]:  # Check latest 200 profiles
+                        try:
+                            # Only process Solana tokens
+                            if profile.get('chainId') != 'solana':
+                                continue
+
+                            # Get token address
+                            mint = profile.get('tokenAddress', '')
+                            if not mint or mint in seen_mints:
+                                continue
+
+                            seen_mints.add(mint)
+
+                            # Parse creation time
+                            created_at = profile.get('createdAt')
+                            if not created_at:
+                                continue
+
+                            launch_time = datetime.fromisoformat(
+                                created_at.replace('Z', '+00:00')
+                            ).replace(tzinfo=None)
+
+                            # Filter by age (0-24 hours)
+                            if launch_time <= cutoff:
+                                continue
+
+                            # Get token metadata
+                            symbol = profile.get('symbol', mint[:8])
+                            name = profile.get('name', 'Unknown')
+
+                            # Check for Raydium migration via DexScreener
+                            url_check = profile.get('url', '')
+                            migration_detected = 'raydium' in url_check.lower()
+
+                            token = FreshToken(
+                                address=mint,
+                                symbol=symbol,
+                                name=name,
+                                launch_time=launch_time,
+                                pump_graduated=migration_detected,
+                                migration_detected=migration_detected,
+                            )
+                            tokens.append(token)
+
+                            age_min = (datetime.now() - launch_time).total_seconds() / 60
+                            logger.info(f"Found fresh token: {symbol} (age: {age_min:.1f} min)")
+
+                            if len(tokens) >= 100:
+                                break
+
+                        except Exception as e:
+                            logger.debug(f"Error parsing profile: {e}")
+                            continue
+
+            logger.info(f"Found {len(tokens)} fresh tokens via DexScreener")
+
+        except Exception as e:
+            logger.error(f"DexScreener query failed: {e}")
+            # Try Helius RPC as fallback
+            return await self._scan_via_helius_rpc()
+
+        return tokens
+
+    async def _scan_via_helius_rpc(self) -> List[FreshToken]:
+        """
+        Fallback: Scan for new tokens via Helius RPC.
+
+        Uses Helius webhook/transaction search to find recent token mints.
+        """
+        tokens = []
+
+        try:
+            # Use Helius Enhanced Transactions API
+            # Search for recent transactions on Solana
+            url = "https://api.helius.xyz/v0/transactions"
+            params = {
+                "api-key": self.api_key,
+            }
+
+            # Request body for transaction search
+            body = {
+                "query": {
+                    "type": ["TOKEN_MINT"],
+                    "commitment": "finalized"
+                },
+                "options": {
+                    "limit": 100
+                }
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, params=params, json=body, timeout=30) as response:
+                    if response.status != 200:
+                        logger.warning(f"Helius RPC fallback failed: {response.status}")
+                        return tokens
+
+                    data = await response.json()
+                    logger.info(f"Helius RPC returned {len(data)} token mint transactions")
+
+                    cutoff = datetime.now() - timedelta(hours=self.max_age_hours)
+
                     for tx in data:
                         try:
-                            # Get timestamp
                             timestamp = tx.get('timestamp', 0)
                             if not timestamp:
                                 continue
 
                             launch_time = datetime.fromtimestamp(timestamp)
 
-                            # Filter by age (0-24 hours)
                             if launch_time <= cutoff:
                                 continue
 
-                            # Extract token mint from transaction
+                            # Extract token mint
                             token_transfers = tx.get('tokenTransfers', [])
-                            if not token_transfers:
-                                continue
-
                             for transfer in token_transfers:
                                 mint = transfer.get('mint', '')
-
-                                # Skip if already seen
-                                if mint in seen_mints or not mint:
-                                    continue
-
-                                seen_mints.add(mint)
-
-                                # Check if this is a new mint (creation)
-                                # New mints have large initial transfers TO the bonding curve
-                                to_user = transfer.get('toUserAccount', '')
-                                amount = transfer.get('tokenAmount', 0)
-
-                                if amount > 0:  # Significant initial mint
-                                    # Try to get token metadata
+                                if mint:
                                     symbol = await self._get_token_symbol(mint)
-
-                                    # Check for Raydium migration
-                                    migration_detected = await self._check_raydium_migration(mint)
 
                                     token = FreshToken(
                                         address=mint,
                                         symbol=symbol or mint[:8],
                                         name=symbol or 'Unknown',
                                         launch_time=launch_time,
-                                        pump_graduated=migration_detected,
-                                        migration_detected=migration_detected,
+                                        pump_graduated=False,
+                                        migration_detected=False,
                                     )
                                     tokens.append(token)
 
-                                    logger.info(f"Found Pump.fun token: {symbol or mint[:8]} (age: {(datetime.now() - launch_time).total_seconds() / 60:.1f} min)")
-
-                                    # Limit results
-                                    if len(tokens) >= 100:
+                                    if len(tokens) >= 50:
                                         break
 
                         except Exception as e:
-                            logger.debug(f"Error parsing transaction: {e}")
-                            continue
+                            logger.debug(f"Error parsing Helius RPC tx: {e}")
 
-                        if len(tokens) >= 100:
+                        if len(tokens) >= 50:
                             break
 
-            logger.info(f"Found {len(tokens)} Pump.fun tokens via Helius blockchain query")
+            logger.info(f"Found {len(tokens)} tokens via Helius RPC fallback")
 
         except Exception as e:
-            logger.error(f"Helius blockchain query failed: {e}")
+            logger.error(f"Helius RPC fallback failed: {e}")
 
         return tokens
 

@@ -511,6 +511,253 @@ class LaunchTracker:
 
         return buyers
 
+    async def get_token_holders(self, token_address: str, min_balance: float = 0) -> List[Dict]:
+        """
+        Get ALL current holders of a token (not just recent traders).
+
+        This captures:
+        - Long-term holders (conviction wallets)
+        - Wallets that bought early and held
+        - Airdrop recipients who haven't sold
+        - Anyone with current balance > 0
+
+        Args:
+            token_address: Token mint address
+            min_balance: Minimum token balance to include (default 0)
+
+        Returns:
+            List of dicts: [{'wallet': address, 'balance': amount}, ...]
+        """
+        holders = []
+
+        try:
+            # Use Helius RPC to get all token accounts
+            url = f"https://rpc.helius.xyz/?api-key={self.api_key}"
+
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getTokenLargestAccounts",
+                "params": [token_address]
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, timeout=30) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        result = data.get('result', {})
+                        value = result.get('value', [])
+
+                        logger.info(f"Token {token_address[:8]}... has {len(value)} holder accounts")
+
+                        for account_info in value:
+                            # Get token account address
+                            token_account = account_info.get('address')
+                            balance_raw = account_info.get('amount')
+
+                            if not token_account or not balance_raw:
+                                continue
+
+                            # Convert balance (usually in smallest units)
+                            balance = float(balance_raw) / 1e9  # Adjust decimals as needed
+
+                            # Skip if below minimum balance
+                            if balance < min_balance:
+                                continue
+
+                            # Now get the owner of this token account
+                            owner = await self._get_token_account_owner(token_account)
+                            if owner:
+                                holders.append({
+                                    'wallet': owner,
+                                    'balance': balance,
+                                    'token_account': token_account
+                                })
+
+                        logger.info(f"Found {len(holders)} holders with balance > {min_balance}")
+
+        except Exception as e:
+            logger.error(f"Failed to get token holders: {e}")
+
+        return holders
+
+    async def _get_token_account_owner(self, token_account: str) -> Optional[str]:
+        """Get the owner wallet address of a token account."""
+        try:
+            url = f"https://rpc.helius.xyz/?api-key={self.api_key}"
+
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getAccountInfo",
+                "params": [
+                    token_account,
+                    {"encoding": "jsonParsed"}
+                ]
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        result = data.get('result', {})
+                        value = result.get('value', {})
+                        parsed_data = value.get('data', {}).get('parsed', {})
+                        info = parsed_data.get('info', {})
+                        owner = info.get('owner')
+                        return owner
+
+        except Exception as e:
+            logger.debug(f"Failed to get token account owner: {e}")
+
+        return None
+
+    async def get_historical_token_holders(self, token_address: str, limit: int = 5000) -> List[str]:
+        """
+        Get ALL wallets that EVER held this token (complete historical blueprint).
+
+        This is more comprehensive than:
+        - Current holders (snapshot of now)
+        - Recent traders (limited to last 200 txs)
+
+        This captures EVERYONE who touched the token:
+        - Quick flippers (bought, sold in 1 hour)
+        - Swing traders (held 1 day, took profit)
+        - Diamond hands (held long, maybe still holding)
+        - Stop-loss sellers (held, took loss, moved on)
+
+        Why this matters:
+        - Good trader bought PEPE at $0.01 → sold at $0.10 (10x) → moved on
+        - We want to track this wallet even though they don't hold PEPE anymore
+        - Their HISTORY shows they're good, not their current holdings
+
+        Args:
+            token_address: Token mint address
+            limit: Max number of transactions to scan (default 5000)
+
+        Returns:
+            List of wallet addresses that ever received this token
+        """
+        historical_wallets = set()
+
+        try:
+            # Get ALL transaction signatures for this token
+            logger.info(f"Getting historical transactions for {token_address[:8]}...")
+
+            url = f"https://api.helius.xyz/v0/addresses/{token_address}/transactions"
+            params = {
+                "api-key": self.api_key,
+                "limit": min(limit, 1000)  # Helius max is 1000 per request
+            }
+
+            total_txs = 0
+            before_signature = None
+
+            # Paginate through ALL transactions
+            while total_txs < limit:
+                if before_signature:
+                    params['before'] = before_signature
+
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, params=params, timeout=30) as response:
+                        if response.status != 200:
+                            logger.warning(f"Helius API error: {response.status}")
+                            break
+
+                        txs = await response.json()
+
+                        if not txs or len(txs) == 0:
+                            break  # No more transactions
+
+                        logger.info(f"  Processing batch of {len(txs)} transactions (total: {total_txs})...")
+
+                        # Parse each transaction for token transfers
+                        for tx in txs:
+                            try:
+                                token_transfers = tx.get('tokenTransfers', [])
+
+                                for transfer in token_transfers:
+                                    # Only process transfers for this token
+                                    if transfer.get('mint') != token_address:
+                                        continue
+
+                                    # Get wallet that RECEIVED tokens (buyer/recipient)
+                                    to_wallet = transfer.get('toUserAccount')
+                                    if to_wallet:
+                                        historical_wallets.add(to_wallet)
+
+                            except Exception as e:
+                                logger.debug(f"Error parsing transaction: {e}")
+
+                        total_txs += len(txs)
+
+                        # Set before_signature for next page
+                        if len(txs) > 0:
+                            # Get last transaction signature for pagination
+                            last_tx = txs[-1]
+                            before_signature = last_tx.get('signature')
+
+                        # If we got less than requested, we're done
+                        if len(txs) < params['limit']:
+                            break
+
+                        # Rate limiting
+                        await asyncio.sleep(0.5)
+
+            logger.info(f"  Scanned {total_txs} historical transactions")
+            logger.info(f"  Found {len(historical_wallets)} unique historical holders")
+
+        except Exception as e:
+            logger.error(f"Failed to get historical holders: {e}")
+
+        return list(historical_wallets)
+
+    async def get_all_token_wallets(self, token_address: str, min_balance: float = 0,
+                                     use_historical: bool = True) -> List[str]:
+        """
+        Get ALL wallets associated with a token (complete blueprint).
+
+        Combines:
+        1. Current holders (anyone with balance > 0 now)
+        2. Recent traders (buyers/sellers from recent transactions)
+        3. Historical holders (EVERYONE who ever held the token) ← NEW!
+
+        This gives COMPLETE coverage of all wallets that ever interacted with the token.
+
+        Args:
+            token_address: Token mint address
+            min_balance: Minimum balance for current holders (default 0)
+            use_historical: Include historical holders (default True for complete scan)
+
+        Returns:
+            List of wallet addresses (deduplicated)
+        """
+        all_wallets = set()
+
+        # 1. Get current holders (conviction wallets - still holding)
+        logger.info(f"Getting current holders for {token_address[:8]}...")
+        holders = await self.get_token_holders(token_address, min_balance=min_balance)
+        for holder in holders:
+            all_wallets.add(holder['wallet'])
+        logger.info(f"  Found {len(holders)} current holders")
+
+        # 2. Get recent traders (active wallets - last 24h)
+        logger.info(f"Getting recent traders for {token_address[:8]}...")
+        traders = await self.get_first_buyers(token_address, limit=200, min_minutes=0, max_minutes=1440)  # 24h window
+        all_wallets.update(traders)
+        logger.info(f"  Found {len(traders)} recent traders")
+
+        # 3. Get historical holders (EVERYONE who ever held) - COMPLETE BLUEPRINT
+        if use_historical:
+            logger.info(f"Getting ALL historical holders for {token_address[:8]} (blueprint scan)...")
+            historical = await self.get_historical_token_holders(token_address, limit=5000)
+            all_wallets.update(historical)
+            logger.info(f"  Found {len(historical)} historical holders (ever held token)")
+
+        logger.info(f"Total unique wallets for {token_address[:8]}: {len(all_wallets)}")
+        logger.info(f"  Breakdown: {len(holders)} current + {len(traders)} recent + {len(historical) if use_historical else 0} historical")
+        return list(all_wallets)
+
     def _extract_buyer(self, tx: Dict, token_address: str) -> Optional[str]:
         """Extract buyer wallet from transaction."""
         try:
@@ -933,24 +1180,28 @@ class InsiderScanner:
         tokens = await self.tracker.scan_fresh_launches()
         logger.info(f"Found {len(tokens)} fresh tokens (0-24h old)")
 
-        # 2. For each token, get first 100 buyers (0-30 min window = insiders + early)
+        # 2. For each token, get ALL wallets (holders + traders)
         for token in tokens[:20]:  # Process 20 tokens per cycle
-            buyers = await self.tracker.get_first_buyers(
+            # Get ALL wallets: current holders + recent traders
+            # This captures conviction wallets that hold long-term, not just active traders
+            logger.info(f"  {token.symbol}: Scanning all token wallets (holders + traders)...")
+            all_wallets = await self.tracker.get_all_token_wallets(
                 token.address,
-                limit=100,  # Get first 100 buyers
-                min_minutes=0,   # From birth - get insiders & dev team!
-                max_minutes=30   # Ultra-early window
+                min_balance=0  # Include anyone with any balance
             )
-            logger.info(f"  {token.symbol}: Found {len(buyers)} buyers (0-30min window)")
+            logger.info(f"  {token.symbol}: Found {len(all_wallets)} unique wallets")
 
-            # 3. Analyze each buyer
-            for buyer in buyers[:20]:  # Analyze top 20 buyers per token
-                patterns = await self.tracker.analyze_buyer_patterns(buyer)
+            # 3. Analyze each wallet (limit to top 50 per token to avoid overload)
+            wallets_to_analyze = all_wallets[:50]
+            logger.info(f"  Analyzing {len(wallets_to_analyze)} wallets for patterns...")
+
+            for wallet in wallets_to_analyze:
+                patterns = await self.tracker.analyze_buyer_patterns(wallet)
 
                 # 4. If pattern detected, save to db
                 if patterns.get('detected_pattern'):
-                    await self.tracker.save_insider_to_db(buyer, patterns)
-                    logger.info(f"    Insider detected: {buyer[:20]}... - {patterns['detected_pattern']}")
+                    await self.tracker.save_insider_to_db(wallet, patterns)
+                    logger.info(f"    Insider detected: {wallet[:20]}... - {patterns['detected_pattern']}")
 
             # 5. DETECT AIRDROPS (team members, insiders)
             logger.info(f"  Scanning for airdrop recipients...")

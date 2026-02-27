@@ -27,6 +27,8 @@ class FreshToken:
     first_buyers: List[str] = field(default_factory=list)
     migration_detected: bool = False
     pump_graduated: bool = False
+    migration_time: datetime = None  # When it migrated to Raydium
+    hours_since_migration: float = 0  # Age of Raydium pair
 
 
 @dataclass
@@ -74,6 +76,7 @@ class LaunchTracker:
         self.max_age_hours = max_age_hours
         self.fresh_tokens: Dict[str, FreshToken] = {}
         self.early_buyers: Dict[str, List[EarlyBuyer]] = {}  # wallet -> buys
+        self.fresh_migrations: List[FreshToken] = []  # Recently migrated tokens (0-6h)
         self.api_key = HELIUS_API_KEY
 
     async def scan_fresh_launches(self) -> List[FreshToken]:
@@ -92,7 +95,9 @@ class LaunchTracker:
         for token in tokens:
             self.fresh_tokens[token.address] = token
 
-        logger.info(f"Tracking {len(self.fresh_tokens)} fresh tokens")
+        logger.info(f"Tracking {len(self.fresh_tokens)} fresh tokens total")
+        logger.info(f"  - Fresh creations: {len(tokens)} (0-24h old)")
+        logger.info(f"  - Fresh migrations: {len(self.fresh_migrations)} (0-6h since Raydium) ⭐")
         return tokens
 
     async def _scan_dexscreener_new(self) -> List[FreshToken]:
@@ -140,10 +145,15 @@ class LaunchTracker:
         """
         Scan Pump.fun tokens via DexScreener (with Cloudflare bypass).
 
+        Returns TWO types of tokens:
+        1. Fresh Creations (0-24h since creation)
+        2. Fresh Migrations (0-6h since Raydium migration) - BEST SIGNAL!
+
         Note: Helius program queries don't work well for Pump.fun.
         Using DexScreener API which has working Cloudflare bypass.
         """
         tokens = []
+        fresh_migrations = []  # Tokens that just migrated (0-6h)
 
         try:
             # Use DexScreener API with Cloudflare bypass headers
@@ -172,8 +182,11 @@ class LaunchTracker:
                     data = await response.json()
                     logger.info(f"DexScreener returned {len(data)} token profiles")
 
-                    cutoff = datetime.now() - timedelta(hours=self.max_age_hours)
+                    now = datetime.now()
+                    cutoff = now - timedelta(hours=self.max_age_hours)
                     seen_mints = set()
+
+                    logger.info(f"Filtering tokens: now={now}, cutoff={cutoff} (24h ago)")
 
                     for profile in data[:200]:  # Check latest 200 profiles
                         try:
@@ -188,39 +201,97 @@ class LaunchTracker:
 
                             seen_mints.add(mint)
 
-                            # Parse creation time
-                            created_at = profile.get('createdAt')
+                            # Parse creation time (try multiple fields)
+                            created_at = profile.get('pairCreatedAt') or profile.get('createdAt')
                             if not created_at:
+                                logger.debug(f"Token {mint[:8]}: No creation timestamp")
                                 continue
 
-                            launch_time = datetime.fromisoformat(
-                                created_at.replace('Z', '+00:00')
-                            ).replace(tzinfo=None)
+                            # Parse timestamp
+                            try:
+                                # Handle ISO format with Z
+                                if isinstance(created_at, str):
+                                    if created_at.endswith('Z'):
+                                        created_at = created_at[:-1] + '+00:00'
+                                    launch_time = datetime.fromisoformat(created_at).replace(tzinfo=None)
+                                elif isinstance(created_at, (int, float)):
+                                    # Unix timestamp (milliseconds)
+                                    launch_time = datetime.fromtimestamp(created_at / 1000)
+                                else:
+                                    logger.debug(f"Token {mint[:8]}: Invalid timestamp format")
+                                    continue
+                            except Exception as e:
+                                logger.debug(f"Token {mint[:8]}: Timestamp parse error: {e}")
+                                continue
+
+                            # Calculate age
+                            age_hours = (now - launch_time).total_seconds() / 3600
+                            age_minutes = age_hours * 60
+
+                            # Debug log
+                            symbol = profile.get('symbol', mint[:8])
+                            logger.info(f"Token {symbol}: created {age_hours:.1f}h ago (launch_time={launch_time})")
 
                             # Filter by age (0-24 hours)
-                            if launch_time <= cutoff:
+                            # If token is older than 24 hours, skip
+                            if age_hours > self.max_age_hours:
+                                logger.debug(f"Token {symbol}: Too old ({age_hours:.1f}h > {self.max_age_hours}h)")
+                                continue
+
+                            # If token is negative age (future), skip
+                            if age_hours < 0:
+                                logger.warning(f"Token {symbol}: Future timestamp ({age_hours:.1f}h)")
                                 continue
 
                             # Get token metadata
                             symbol = profile.get('symbol', mint[:8])
                             name = profile.get('name', 'Unknown')
 
-                            # Check for Raydium migration via DexScreener
+                            # Check for Raydium migration
                             url_check = profile.get('url', '')
-                            migration_detected = 'raydium' in url_check.lower()
+                            has_raydium = 'raydium' in url_check.lower()
+
+                            # Check migration timing (if has Raydium pair)
+                            migration_time = None
+                            hours_since_migration = 0
+
+                            if has_raydium:
+                                # pairCreatedAt = when Raydium pair was created = migration time
+                                pair_created = profile.get('pairCreatedAt')
+                                if pair_created:
+                                    try:
+                                        if isinstance(pair_created, str):
+                                            if pair_created.endswith('Z'):
+                                                pair_created = pair_created[:-1] + '+00:00'
+                                            migration_time = datetime.fromisoformat(pair_created).replace(tzinfo=None)
+                                        elif isinstance(pair_created, (int, float)):
+                                            migration_time = datetime.fromtimestamp(pair_created / 1000)
+
+                                        hours_since_migration = (now - migration_time).total_seconds() / 3600
+                                    except Exception as e:
+                                        logger.debug(f"Error parsing migration time: {e}")
 
                             token = FreshToken(
                                 address=mint,
                                 symbol=symbol,
                                 name=name,
                                 launch_time=launch_time,
-                                pump_graduated=migration_detected,
-                                migration_detected=migration_detected,
+                                pump_graduated=has_raydium,
+                                migration_detected=has_raydium,
+                                migration_time=migration_time,
+                                hours_since_migration=hours_since_migration,
                             )
-                            tokens.append(token)
 
-                            age_min = (datetime.now() - launch_time).total_seconds() / 60
-                            logger.info(f"Found fresh token: {symbol} (age: {age_min:.1f} min)")
+                            # Add to appropriate list
+                            tokens.append(token)  # Always add to fresh creations
+
+                            # ALSO add to fresh migrations if migrated recently (0-6h)
+                            if has_raydium and 0 < hours_since_migration <= 6:
+                                fresh_migrations.append(token)
+                                logger.info(f"🎯 FRESH MIGRATION: {symbol} (migrated {hours_since_migration:.1f}h ago)")
+
+                            age_min = age_hours * 60
+                            logger.info(f"Found fresh token: {symbol} (created {age_hours:.1f}h ago)")
 
                             if len(tokens) >= 100:
                                 break
@@ -229,14 +300,18 @@ class LaunchTracker:
                             logger.debug(f"Error parsing profile: {e}")
                             continue
 
-            logger.info(f"Found {len(tokens)} fresh tokens via DexScreener")
+            logger.info(f"Found {len(tokens)} fresh creations (0-24h) via DexScreener")
+            logger.info(f"Found {len(fresh_migrations)} fresh migrations (0-6h) - BEST SIGNAL!")
+
+            # Store migrations for tracking
+            self.fresh_migrations = fresh_migrations
 
         except Exception as e:
             logger.error(f"DexScreener query failed: {e}")
             # Try Helius RPC as fallback
             return await self._scan_via_helius_rpc()
 
-        return tokens
+        return tokens  # Return all fresh creations
 
     async def _scan_via_helius_rpc(self) -> List[FreshToken]:
         """

@@ -1,0 +1,22 @@
+[Unit]
+Description=V'ger Telegram Control Bot
+After=network.target openclaw.service
+Wants=openclaw.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Soulwinners
+Environment="PYTHONPATH=/root/Soulwinners"
+ExecStart=/root/Soulwinners/venv/bin/python3 v_ger_bot.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/root/Soulwinners/logs/vger.log
+StandardError=append:/root/Soulwinners/logs/vger.log
+
+# Security
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

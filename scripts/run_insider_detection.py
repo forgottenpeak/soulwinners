@@ -33,8 +33,10 @@ async def main():
         # Step 1: Scan for fresh launches
         logger.info("Step 1: Scanning for fresh launches...")
         tracker = LaunchTracker()
-        await tracker.scan()
-        logger.info("✓ Fresh launch scan complete")
+        tokens = await tracker.scan_fresh_launches()
+        logger.info(f"✓ Fresh launch scan complete - Found {len(tokens)} tokens")
+        logger.info(f"  - Fresh creations (0-24h): {len(tokens)}")
+        logger.info(f"  - Fresh migrations (0-6h): {len(tracker.fresh_migrations)}")
 
         # Step 2: Detect insider wallets
         logger.info("Step 2: Detecting insider wallets...")

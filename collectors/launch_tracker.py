@@ -101,9 +101,15 @@ class LaunchTracker:
         return tokens
 
     async def _scan_dexscreener_new(self) -> List[FreshToken]:
-        """Scan DexScreener for new Solana pairs using pairs endpoint."""
+        """
+        Scan DexScreener for fresh Raydium pairs (Pump.fun graduations).
+
+        Search for "raydium" to get only Raydium pairs, then filter by age.
+        Fresh Raydium pairs (< 24h) are typically Pump.fun tokens that just graduated.
+        """
         tokens = []
-        url = "https://api.dexscreener.com/latest/dex/search?q=solana"
+        # Search for Raydium pairs (where Pump.fun tokens graduate to)
+        url = "https://api.dexscreener.com/latest/dex/search?q=raydium"
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -112,14 +118,24 @@ class LaunchTracker:
                         data = await response.json()
                         pairs = data.get('pairs', [])
 
-                        logger.info(f"DexScreener pairs endpoint returned {len(pairs)} pairs")
+                        logger.info(f"DexScreener search returned {len(pairs)} Raydium pairs")
 
                         now = datetime.now()
                         cutoff = now - timedelta(hours=self.max_age_hours)
                         seen_mints = set()
+                        fresh_count = 0
 
-                        for pair in pairs[:100]:  # Check latest 100
+                        for pair in pairs[:200]:  # Check more pairs since we're filtering
                             try:
+                                # Only process Solana chain
+                                if pair.get('chainId') != 'solana':
+                                    continue
+
+                                # Only process Raydium DEX
+                                dex_id = pair.get('dexId', '')
+                                if 'raydium' not in dex_id.lower():
+                                    continue
+
                                 # Get pairCreatedAt timestamp (milliseconds)
                                 pair_created_at = pair.get('pairCreatedAt')
                                 if not pair_created_at:
@@ -131,7 +147,7 @@ class LaunchTracker:
                                 # Calculate age
                                 age_hours = (now - launch_time).total_seconds() / 3600
 
-                                # Filter by age (0-24 hours)
+                                # Filter by age (0-24 hours) - only fresh pairs
                                 if age_hours > self.max_age_hours or age_hours < 0:
                                     continue
 
@@ -147,7 +163,8 @@ class LaunchTracker:
                                 symbol = base_token.get('symbol', '???')
                                 name = base_token.get('name', 'Unknown')
 
-                                logger.info(f"Found fresh pair: {symbol} (created {age_hours:.1f}h ago)")
+                                fresh_count += 1
+                                logger.info(f"Fresh Raydium pair: {symbol} (created {age_hours:.1f}h ago)")
 
                                 token = FreshToken(
                                     address=mint,
@@ -183,9 +200,10 @@ class LaunchTracker:
         fresh_migrations = []  # Tokens that just migrated (0-6h)
 
         try:
-            # Use DexScreener pairs endpoint with Cloudflare bypass headers
+            # Use DexScreener search for Raydium pairs with Cloudflare bypass headers
+            # Search for "raydium" to get fresh Pump.fun graduations (not all Solana tokens)
             # This has proper pairCreatedAt timestamps (milliseconds)
-            url = "https://api.dexscreener.com/latest/dex/search?q=solana"
+            url = "https://api.dexscreener.com/latest/dex/search?q=raydium"
 
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -218,6 +236,15 @@ class LaunchTracker:
 
                     for pair in pairs[:200]:  # Check latest 200 pairs
                         try:
+                            # Only process Solana chain
+                            if pair.get('chainId') != 'solana':
+                                continue
+
+                            # Only process Raydium DEX (where Pump.fun tokens graduate)
+                            dex_id = pair.get('dexId', '')
+                            if 'raydium' not in dex_id.lower():
+                                continue
+
                             # Get pairCreatedAt timestamp (milliseconds)
                             pair_created_at = pair.get('pairCreatedAt')
                             if not pair_created_at:

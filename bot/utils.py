@@ -33,15 +33,45 @@ EXCLUDED_ADDRESSES = {
     '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8',  # Raydium
 }
 
+# Token address suffixes to skip (pump.fun, etc.)
+TOKEN_ADDRESS_SUFFIXES = ('pump', 'Pump', 'PUMP')
+
+
+def is_likely_token_address(address: str) -> bool:
+    """
+    Check if address looks like a token mint rather than a wallet.
+
+    Token addresses often:
+    - End with 'pump' (pump.fun tokens)
+    - Are in known program lists
+    """
+    if not address:
+        return False
+
+    # Check for pump.fun token suffix
+    if address.endswith(TOKEN_ADDRESS_SUFFIXES):
+        return True
+
+    # Check excluded addresses
+    if address in EXCLUDED_ADDRESSES:
+        return True
+
+    return False
+
 
 def extract_wallet_from_text(text: str) -> Optional[str]:
     """
-    Extract a Solana wallet address from alert text.
+    Extract a Solana WALLET address from alert text.
 
     Tries multiple strategies:
-    1. Look for labeled wallet patterns (Wallet:, Address:, etc.)
-    2. Look for URLs containing wallet addresses
-    3. Find any valid Solana address (longest match wins)
+    1. Look for labeled wallet patterns (Wallet:, Buyer:, Trader:, etc.)
+    2. Look for profile URLs (solscan, birdeye)
+    3. Find addresses that DON'T look like tokens
+
+    Filters out:
+    - Token addresses ending in 'pump'
+    - Known program addresses
+    - Stablecoin addresses
 
     Returns:
         Wallet address or None if not found
@@ -50,30 +80,55 @@ def extract_wallet_from_text(text: str) -> Optional[str]:
         return None
 
     # Strategy 1: Try labeled patterns first (most reliable)
+    # These explicitly label wallet addresses
     for pattern in WALLET_LABEL_PATTERNS:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             wallet = match.group(1)
-            if is_valid_solana_address(wallet):
-                logger.debug(f"Found wallet via labeled pattern: {wallet[:12]}...")
+            # Validate it's a wallet, not a token
+            if is_valid_solana_address(wallet) and not is_likely_token_address(wallet):
+                logger.info(f"Found wallet via labeled pattern: {wallet[:12]}...")
                 return wallet
 
     # Strategy 2: Find all potential addresses
     all_matches = SOLANA_WALLET_PATTERN.findall(text)
 
-    # Filter out known tokens/programs
+    # Filter out tokens and known programs
     valid_wallets = [
         addr for addr in all_matches
-        if addr not in EXCLUDED_ADDRESSES and is_valid_solana_address(addr)
+        if is_valid_solana_address(addr) and not is_likely_token_address(addr)
     ]
 
+    if not valid_wallets:
+        logger.warning(f"No valid wallet found in text (found {len(all_matches)} addresses, all filtered)")
+        return None
+
+    # Strategy 3: If we found labeled "Token:" or "CA:" skip those
+    # Look for pattern that identifies token addresses to exclude
+    token_patterns = [
+        r'Token[:\s]+`?([1-9A-HJ-NP-Za-km-z]{32,44})`?',
+        r'CA[:\s]+`?([1-9A-HJ-NP-Za-km-z]{32,44})`?',
+        r'Contract[:\s]+`?([1-9A-HJ-NP-Za-km-z]{32,44})`?',
+        r'Mint[:\s]+`?([1-9A-HJ-NP-Za-km-z]{32,44})`?',
+    ]
+
+    token_addresses = set()
+    for pattern in token_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            token_addresses.add(match.group(1))
+
+    # Remove identified token addresses
+    valid_wallets = [addr for addr in valid_wallets if addr not in token_addresses]
+
     if valid_wallets:
-        # Return the longest one (usually the wallet, not token mint)
-        # Or the first one found
-        wallet = max(valid_wallets, key=len)
-        logger.debug(f"Found wallet via pattern match: {wallet[:12]}...")
+        # Return the FIRST one found (usually the wallet mentioned first)
+        # Not longest - token addresses are often longer
+        wallet = valid_wallets[0]
+        logger.info(f"Found wallet via pattern match: {wallet[:12]}...")
         return wallet
 
+    logger.warning("No wallet found after filtering token addresses")
     return None
 
 

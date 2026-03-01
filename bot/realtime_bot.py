@@ -501,8 +501,12 @@ class RealTimeBot:
             'timestamp': tx_timestamp,
         }
 
+        # Ensure wallet_address is in wallet_data for truncation
+        wallet_data_with_addr = dict(wallet_data) if wallet_data else {}
+        wallet_data_with_addr['wallet_address'] = wallet_addr
+
         message = self.formatter.format_buy_alert(
-            wallet=wallet_data,
+            wallet=wallet_data_with_addr,
             token=token_info,
             trade=trade_data,
             smart_money=smart_money,

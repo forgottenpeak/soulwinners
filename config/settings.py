@@ -9,18 +9,40 @@ BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
 LOGS_DIR = BASE_DIR / "logs"
 
-# API Keys - Helius Key Pool (4 keys = 400 req/sec capacity)
-HELIUS_API_KEYS = [
-    "59648c8b-a691-451b-b1ee-3542ad7afd36",  # Key 1 (original)
-    "2c353fb3-653a-47d2-8247-2286ac7098a8",  # Key 2
-    "ee2a7d3e-2935-4736-8c3f-113c268f5510",  # Key 3
-    "b371c9f4-2ff4-4426-8949-7125b814a421",  # Key 4
+# =============================================================================
+# HELIUS API KEY POOLS (Separate free vs premium for cost optimization)
+# =============================================================================
+
+# FREE KEYS - Use for background jobs (4 keys = 400 req/sec capacity)
+# - Main pipeline (every 2 hours)
+# - Insider detection (every 15 min)
+# - Cluster analysis (every 20 min)
+HELIUS_FREE_KEYS = [
+    "59648c8b-a691-451b-b1ee-3542ad7afd36",  # Free Key 1
+    "2c353fb3-653a-47d2-8247-2286ac7098a8",  # Free Key 2
+    "ee2a7d3e-2935-4736-8c3f-113c268f5510",  # Free Key 3
+    "b371c9f4-2ff4-4426-8949-7125b814a421",  # Free Key 4
 ]
 
+# PREMIUM KEY - Use ONLY for real-time monitoring ($49/month)
+# - Real-time wallet monitoring (60-sec polling)
+# - Buy alert detection
+# - Higher rate limits, priority access
+HELIUS_PREMIUM_KEY = os.getenv(
+    "HELIUS_PREMIUM_KEY",
+    "59648c8b-a691-451b-b1ee-3542ad7afd36"  # Default to free key if not set
+)
+
+# Legacy: All keys combined for backwards compatibility
+HELIUS_API_KEYS = HELIUS_FREE_KEYS
+
 # Default key for backwards compatibility
-HELIUS_API_KEY = HELIUS_API_KEYS[0]
+HELIUS_API_KEY = HELIUS_FREE_KEYS[0]
 HELIUS_RPC_URL = f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}"
 HELIUS_WS_URL = f"wss://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}"
+
+# Premium RPC URL for real-time monitoring
+HELIUS_PREMIUM_RPC_URL = f"https://mainnet.helius-rpc.com/?api-key={HELIUS_PREMIUM_KEY}"
 
 # Telegram Configuration
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8483614914:AAFjwtH2pct_OdZgi4zrcPNKq6zWdb62ypQ")

@@ -9,8 +9,9 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Set, Optional
 from dataclasses import dataclass, field
 
-from config.settings import HELIUS_API_KEY
+from config.settings import HELIUS_API_KEY, HELIUS_FREE_KEYS
 from database import get_connection
+from collectors.helius import helius_rotator  # Uses FREE keys for background jobs
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,12 @@ class LaunchTracker:
         self.fresh_tokens: Dict[str, FreshToken] = {}
         self.early_buyers: Dict[str, List[EarlyBuyer]] = {}  # wallet -> buys
         self.fresh_migrations: List[FreshToken] = []  # Recently migrated tokens (0-6h)
-        self.api_key = HELIUS_API_KEY
+        self.rotator = helius_rotator  # Use FREE key rotation for background jobs
+        self.api_key = HELIUS_API_KEY  # Legacy fallback
+
+    async def _get_api_key(self) -> str:
+        """Get next API key from rotator (FREE pool)."""
+        return await self.rotator.get_key()
 
     async def scan_fresh_launches(self) -> List[FreshToken]:
         """Scan for tokens launched in the last 24 hours."""
@@ -104,227 +110,294 @@ class LaunchTracker:
         """
         Scan DexScreener for fresh Raydium pairs (Pump.fun graduations).
 
-        Search for "raydium" to get only Raydium pairs, then filter by age.
-        Fresh Raydium pairs (< 24h) are typically Pump.fun tokens that just graduated.
+        Uses multiple endpoints to maximize token discovery:
+        1. Token boosts/latest endpoint for trending new tokens
+        2. Search API with multiple queries
+        3. Solana-specific pair searches
+
+        Target: 50-100+ fresh tokens per scan.
         """
         tokens = []
-        # Search for Raydium pairs (where Pump.fun tokens graduate to)
-        url = "https://api.dexscreener.com/latest/dex/search?q=raydium"
+        seen_mints = set()
+        now = datetime.now()
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=15) as response:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+        }
+
+        async with aiohttp.ClientSession() as session:
+            # Source 1: Token Boosts (trending new tokens)
+            try:
+                boost_url = "https://api.dexscreener.com/token-boosts/latest/v1"
+                async with session.get(boost_url, headers=headers, timeout=15) as response:
                     if response.status == 200:
                         data = await response.json()
-                        pairs = data.get('pairs', [])
+                        boosts = data if isinstance(data, list) else []
+                        logger.info(f"DexScreener boosts returned {len(boosts)} tokens")
 
-                        logger.info(f"DexScreener search returned {len(pairs)} Raydium pairs")
-
-                        now = datetime.now()
-                        cutoff = now - timedelta(hours=self.max_age_hours)
-                        seen_mints = set()
-                        fresh_count = 0
-
-                        for pair in pairs[:200]:  # Check more pairs since we're filtering
+                        for boost in boosts[:100]:
                             try:
-                                # Only process Solana chain
-                                if pair.get('chainId') != 'solana':
+                                if boost.get('chainId') != 'solana':
                                     continue
-
-                                # Only process Raydium DEX
-                                dex_id = pair.get('dexId', '')
-                                if 'raydium' not in dex_id.lower():
-                                    continue
-
-                                # Get pairCreatedAt timestamp (milliseconds)
-                                pair_created_at = pair.get('pairCreatedAt')
-                                if not pair_created_at:
-                                    continue
-
-                                # Convert milliseconds to datetime
-                                launch_time = datetime.fromtimestamp(pair_created_at / 1000)
-
-                                # Calculate age
-                                age_hours = (now - launch_time).total_seconds() / 3600
-
-                                # Filter by age (0-24 hours) - only fresh pairs
-                                if age_hours > self.max_age_hours or age_hours < 0:
-                                    continue
-
-                                # Get token info from baseToken
-                                base_token = pair.get('baseToken', {})
-                                mint = base_token.get('address', '')
-
+                                mint = boost.get('tokenAddress', '')
                                 if not mint or mint in seen_mints:
                                     continue
-
                                 seen_mints.add(mint)
 
-                                symbol = base_token.get('symbol', '???')
-                                name = base_token.get('name', 'Unknown')
-
-                                fresh_count += 1
-                                logger.info(f"Fresh Raydium pair: {symbol} (created {age_hours:.1f}h ago)")
-
-                                token = FreshToken(
-                                    address=mint,
-                                    symbol=symbol,
-                                    name=name,
-                                    launch_time=launch_time,
-                                )
-                                tokens.append(token)
-
+                                # Get pair info for this token
+                                token = await self._get_token_pair_info(session, mint, headers)
+                                if token and self._is_fresh_token(token, now):
+                                    tokens.append(token)
                             except Exception as e:
-                                logger.debug(f"Error parsing pair: {e}")
-                                continue
+                                logger.debug(f"Error parsing boost: {e}")
+            except Exception as e:
+                logger.debug(f"Boosts endpoint failed: {e}")
 
-                        logger.info(f"Found {len(tokens)} fresh tokens (0-{self.max_age_hours}h) via DexScreener pairs")
+            # Source 2: Latest pairs on Solana (most reliable for fresh launches)
+            try:
+                # DexScreener pairs by chain - gets newest pairs
+                pairs_url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+                # Note: This endpoint doesn't exist, but we'll use token-profiles
 
-        except Exception as e:
-            logger.error(f"DexScreener pairs scan failed: {e}")
+                # Use token profiles for Solana
+                profiles_url = "https://api.dexscreener.com/token-profiles/latest/v1"
+                async with session.get(profiles_url, headers=headers, timeout=15) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        profiles = data if isinstance(data, list) else []
+                        logger.info(f"DexScreener profiles returned {len(profiles)} tokens")
+
+                        for profile in profiles[:150]:
+                            try:
+                                if profile.get('chainId') != 'solana':
+                                    continue
+                                mint = profile.get('tokenAddress', '')
+                                if not mint or mint in seen_mints:
+                                    continue
+                                seen_mints.add(mint)
+
+                                token = await self._get_token_pair_info(session, mint, headers)
+                                if token and self._is_fresh_token(token, now):
+                                    tokens.append(token)
+                            except Exception as e:
+                                logger.debug(f"Error parsing profile: {e}")
+            except Exception as e:
+                logger.debug(f"Profiles endpoint failed: {e}")
+
+            # Source 3: Multiple search queries for Raydium pairs
+            search_queries = [
+                "raydium",      # Main Raydium pairs
+                "pump",         # Pump.fun tokens
+                "sol",          # SOL pairs
+                "solana",       # Solana tokens
+            ]
+
+            for query in search_queries:
+                try:
+                    search_url = f"https://api.dexscreener.com/latest/dex/search?q={query}"
+                    async with session.get(search_url, headers=headers, timeout=15) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            pairs = data.get('pairs', [])
+                            logger.info(f"DexScreener search '{query}' returned {len(pairs)} pairs")
+
+                            fresh_from_query = 0
+                            for pair in pairs[:100]:
+                                try:
+                                    if pair.get('chainId') != 'solana':
+                                        continue
+
+                                    # Only Raydium DEX
+                                    dex_id = pair.get('dexId', '')
+                                    if 'raydium' not in dex_id.lower():
+                                        continue
+
+                                    base_token = pair.get('baseToken', {})
+                                    mint = base_token.get('address', '')
+
+                                    if not mint or mint in seen_mints:
+                                        continue
+                                    seen_mints.add(mint)
+
+                                    pair_created_at = pair.get('pairCreatedAt')
+                                    if not pair_created_at:
+                                        continue
+
+                                    launch_time = datetime.fromtimestamp(pair_created_at / 1000)
+                                    age_hours = (now - launch_time).total_seconds() / 3600
+
+                                    if age_hours > self.max_age_hours or age_hours < 0:
+                                        continue
+
+                                    symbol = base_token.get('symbol', '???')
+                                    name = base_token.get('name', 'Unknown')
+
+                                    token = FreshToken(
+                                        address=mint,
+                                        symbol=symbol,
+                                        name=name,
+                                        launch_time=launch_time,
+                                        pump_graduated='raydium' in dex_id.lower(),
+                                        migration_detected=True,
+                                        migration_time=launch_time,
+                                        hours_since_migration=age_hours,
+                                    )
+                                    tokens.append(token)
+                                    fresh_from_query += 1
+
+                                except Exception as e:
+                                    logger.debug(f"Error parsing pair: {e}")
+
+                            if fresh_from_query > 0:
+                                logger.info(f"  Found {fresh_from_query} fresh tokens from '{query}' search")
+
+                    await asyncio.sleep(0.3)  # Rate limiting between queries
+
+                except Exception as e:
+                    logger.debug(f"Search '{query}' failed: {e}")
+
+        # Sort by launch time (newest first)
+        tokens.sort(key=lambda t: t.launch_time, reverse=True)
+
+        logger.info(f"Total: Found {len(tokens)} fresh tokens (0-{self.max_age_hours}h) via DexScreener")
 
         return tokens
 
+    async def _get_token_pair_info(self, session: aiohttp.ClientSession,
+                                    mint: str, headers: dict) -> Optional[FreshToken]:
+        """Get token pair info from DexScreener."""
+        try:
+            url = f"https://api.dexscreener.com/tokens/v1/solana/{mint}"
+            async with session.get(url, headers=headers, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data and len(data) > 0:
+                        pair = data[0]
+
+                        # Only Raydium pairs
+                        dex_id = pair.get('dexId', '')
+                        if 'raydium' not in dex_id.lower():
+                            return None
+
+                        pair_created_at = pair.get('pairCreatedAt')
+                        if not pair_created_at:
+                            return None
+
+                        launch_time = datetime.fromtimestamp(pair_created_at / 1000)
+                        now = datetime.now()
+                        age_hours = (now - launch_time).total_seconds() / 3600
+
+                        base_token = pair.get('baseToken', {})
+                        return FreshToken(
+                            address=mint,
+                            symbol=base_token.get('symbol', '???'),
+                            name=base_token.get('name', 'Unknown'),
+                            launch_time=launch_time,
+                            pump_graduated=True,
+                            migration_detected=True,
+                            migration_time=launch_time,
+                            hours_since_migration=age_hours,
+                        )
+        except Exception as e:
+            logger.debug(f"Token info fetch failed: {e}")
+        return None
+
+    def _is_fresh_token(self, token: FreshToken, now: datetime) -> bool:
+        """Check if token is within fresh window."""
+        if not token or not token.launch_time:
+            return False
+        age_hours = (now - token.launch_time).total_seconds() / 3600
+        return 0 <= age_hours <= self.max_age_hours
+
     async def _scan_pumpfun_graduated(self) -> List[FreshToken]:
         """
-        Scan Pump.fun tokens via DexScreener pairs endpoint (with Cloudflare bypass).
+        Scan for Pump.fun graduated tokens (migrated to Raydium).
 
-        Returns TWO types of tokens:
-        1. Fresh Creations (0-24h since creation)
-        2. Fresh Migrations (0-6h since Raydium migration) - BEST SIGNAL!
+        This method now focuses specifically on finding FRESH MIGRATIONS (0-6h)
+        which are the best trading signals.
 
-        Note: Helius program queries don't work well for Pump.fun.
-        Using DexScreener pairs API which has proper timestamps.
+        The main token discovery is handled by _scan_dexscreener_new().
         """
-        tokens = []
-        fresh_migrations = []  # Tokens that just migrated (0-6h)
+        fresh_migrations = []
+        now = datetime.now()
 
-        try:
-            # Use DexScreener search for Raydium pairs with Cloudflare bypass headers
-            # Search for "raydium" to get fresh Pump.fun graduations (not all Solana tokens)
-            # This has proper pairCreatedAt timestamps (milliseconds)
-            url = "https://api.dexscreener.com/latest/dex/search?q=raydium"
+        # Get all tokens from the main scan (already in self.fresh_tokens from scan_fresh_launches)
+        # Filter for fresh migrations only (0-6h since Raydium)
+        for token in list(self.fresh_tokens.values()):
+            if token.migration_detected and token.hours_since_migration:
+                if 0 < token.hours_since_migration <= 6:
+                    fresh_migrations.append(token)
+                    logger.info(f"🎯 FRESH MIGRATION: {token.symbol} (migrated {token.hours_since_migration:.1f}h ago)")
 
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/json, text/plain, */*',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Origin': 'https://dexscreener.com',
-                'Referer': 'https://dexscreener.com/',
-                'Sec-Fetch-Dest': 'empty',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'same-site',
-            }
+        # If we don't have enough, do an additional targeted search
+        if len(fresh_migrations) < 10:
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': 'application/json',
+                }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, timeout=30) as response:
-                    if response.status != 200:
-                        logger.error(f"DexScreener API error: {response.status}")
-                        # Try Helius RPC as fallback
-                        return await self._scan_via_helius_rpc()
+                # Search specifically for pump.fun graduated tokens
+                async with aiohttp.ClientSession() as session:
+                    search_url = "https://api.dexscreener.com/latest/dex/search?q=pump"
+                    async with session.get(search_url, headers=headers, timeout=15) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            pairs = data.get('pairs', [])
 
-                    data = await response.json()
-                    pairs = data.get('pairs', [])
-                    logger.info(f"DexScreener returned {len(pairs)} pairs")
+                            for pair in pairs[:100]:
+                                try:
+                                    if pair.get('chainId') != 'solana':
+                                        continue
 
-                    now = datetime.now()
-                    cutoff = now - timedelta(hours=self.max_age_hours)
-                    seen_mints = set()
+                                    dex_id = pair.get('dexId', '')
+                                    if 'raydium' not in dex_id.lower():
+                                        continue
 
-                    logger.info(f"Filtering tokens: now={now}, cutoff={cutoff} (24h ago)")
+                                    pair_created_at = pair.get('pairCreatedAt')
+                                    if not pair_created_at:
+                                        continue
 
-                    for pair in pairs[:200]:  # Check latest 200 pairs
-                        try:
-                            # Only process Solana chain
-                            if pair.get('chainId') != 'solana':
-                                continue
+                                    launch_time = datetime.fromtimestamp(pair_created_at / 1000)
+                                    age_hours = (now - launch_time).total_seconds() / 3600
 
-                            # Only process Raydium DEX (where Pump.fun tokens graduate)
-                            dex_id = pair.get('dexId', '')
-                            if 'raydium' not in dex_id.lower():
-                                continue
+                                    # Only fresh migrations (0-6h)
+                                    if age_hours > 6 or age_hours < 0:
+                                        continue
 
-                            # Get pairCreatedAt timestamp (milliseconds)
-                            pair_created_at = pair.get('pairCreatedAt')
-                            if not pair_created_at:
-                                continue
+                                    base_token = pair.get('baseToken', {})
+                                    mint = base_token.get('address', '')
 
-                            # Convert milliseconds to datetime
-                            launch_time = datetime.fromtimestamp(pair_created_at / 1000)
+                                    # Skip if already in fresh_tokens
+                                    if mint in self.fresh_tokens:
+                                        continue
 
-                            # Calculate age
-                            age_hours = (now - launch_time).total_seconds() / 3600
+                                    token = FreshToken(
+                                        address=mint,
+                                        symbol=base_token.get('symbol', '???'),
+                                        name=base_token.get('name', 'Unknown'),
+                                        launch_time=launch_time,
+                                        pump_graduated=True,
+                                        migration_detected=True,
+                                        migration_time=launch_time,
+                                        hours_since_migration=age_hours,
+                                    )
 
-                            # Filter by age (0-24 hours)
-                            if age_hours > self.max_age_hours:
-                                continue
+                                    fresh_migrations.append(token)
+                                    self.fresh_tokens[mint] = token
+                                    logger.info(f"🎯 FRESH MIGRATION: {token.symbol} (migrated {age_hours:.1f}h ago)")
 
-                            if age_hours < 0:
-                                logger.warning(f"Pair has future timestamp")
-                                continue
+                                except Exception as e:
+                                    logger.debug(f"Error parsing pump pair: {e}")
 
-                            # Get token info from baseToken
-                            base_token = pair.get('baseToken', {})
-                            mint = base_token.get('address', '')
+            except Exception as e:
+                logger.debug(f"Pump.fun search failed: {e}")
 
-                            if not mint or mint in seen_mints:
-                                continue
+        logger.info(f"Found {len(fresh_migrations)} fresh migrations (0-6h) - BEST SIGNAL!")
+        self.fresh_migrations = fresh_migrations
 
-                            seen_mints.add(mint)
-
-                            symbol = base_token.get('symbol', mint[:8])
-                            name = base_token.get('name', 'Unknown')
-
-                            # Check for Raydium migration
-                            dex_id = pair.get('dexId', '')
-                            url_check = pair.get('url', '')
-                            has_raydium = 'raydium' in dex_id.lower() or 'raydium' in url_check.lower()
-
-                            # Migration timing: pairCreatedAt = when Raydium pair was created
-                            migration_time = launch_time  # For Raydium pairs, this IS the migration time
-                            hours_since_migration = age_hours
-
-                            token = FreshToken(
-                                address=mint,
-                                symbol=symbol,
-                                name=name,
-                                launch_time=launch_time,
-                                pump_graduated=has_raydium,
-                                migration_detected=has_raydium,
-                                migration_time=migration_time if has_raydium else None,
-                                hours_since_migration=hours_since_migration if has_raydium else 0,
-                            )
-
-                            # Add to appropriate list
-                            tokens.append(token)  # Always add to fresh creations
-
-                            # ALSO add to fresh migrations if Raydium pair created recently (0-6h)
-                            if has_raydium and 0 < hours_since_migration <= 6:
-                                fresh_migrations.append(token)
-                                logger.info(f"🎯 FRESH MIGRATION: {symbol} (migrated {hours_since_migration:.1f}h ago)")
-
-                            logger.info(f"Found fresh token: {symbol} (created {age_hours:.1f}h ago, dex={dex_id})")
-
-                            if len(tokens) >= 100:
-                                break
-
-                        except Exception as e:
-                            logger.debug(f"Error parsing profile: {e}")
-                            continue
-
-            logger.info(f"Found {len(tokens)} fresh creations (0-24h) via DexScreener")
-            logger.info(f"Found {len(fresh_migrations)} fresh migrations (0-6h) - BEST SIGNAL!")
-
-            # Store migrations for tracking
-            self.fresh_migrations = fresh_migrations
-
-        except Exception as e:
-            logger.error(f"DexScreener query failed: {e}")
-            # Try Helius RPC as fallback
-            return await self._scan_via_helius_rpc()
-
-        return tokens  # Return all fresh creations
+        return fresh_migrations
 
     async def _scan_via_helius_rpc(self) -> List[FreshToken]:
         """
@@ -411,9 +484,10 @@ class LaunchTracker:
     async def _get_token_symbol(self, mint: str) -> str:
         """Get token symbol/name from mint address via Helius."""
         try:
+            api_key = await self._get_api_key()
             url = f"https://api.helius.xyz/v0/token-metadata"
             params = {
-                "api-key": self.api_key,
+                "api-key": api_key,
                 "mint": mint
             }
 
@@ -435,9 +509,10 @@ class LaunchTracker:
         """
         try:
             # Get recent transactions for this token mint
+            api_key = await self._get_api_key()
             url = f"https://api.helius.xyz/v0/addresses/{mint}/transactions"
             params = {
-                "api-key": self.api_key,
+                "api-key": api_key,
                 "limit": 50
             }
 
@@ -476,8 +551,9 @@ class LaunchTracker:
             min_minutes: Minimum time after launch (default 0 - get insiders!)
             max_minutes: Maximum time after launch (default 30)
         """
+        api_key = await self._get_api_key()
         url = f"https://api.helius.xyz/v0/addresses/{token_address}/transactions"
-        params = {"api-key": self.api_key, "limit": 200}  # Get more to filter
+        params = {"api-key": api_key, "limit": 200}  # Get more to filter
 
         buyers = []
 
@@ -532,7 +608,8 @@ class LaunchTracker:
 
         try:
             # Use Helius RPC to get all token accounts
-            url = f"https://rpc.helius.xyz/?api-key={self.api_key}"
+            api_key = await self._get_api_key()
+            url = f"https://rpc.helius.xyz/?api-key={api_key}"
 
             payload = {
                 "jsonrpc": "2.0",
@@ -584,7 +661,8 @@ class LaunchTracker:
     async def _get_token_account_owner(self, token_account: str) -> Optional[str]:
         """Get the owner wallet address of a token account."""
         try:
-            url = f"https://rpc.helius.xyz/?api-key={self.api_key}"
+            api_key = await self._get_api_key()
+            url = f"https://rpc.helius.xyz/?api-key={api_key}"
 
             payload = {
                 "jsonrpc": "2.0",
@@ -617,26 +695,18 @@ class LaunchTracker:
         """
         Get wallets that held this token in recent history (optimized for API usage).
 
+        Uses Solana RPC getSignaturesForAddress for reliable transaction fetching,
+        then parses each transaction for token transfers.
+
         OPTIMIZATION: Limited to last 7 days to reduce Helius API costs.
         - Scans up to 1000 transactions (reduced from 5000)
         - Only looks back 7 days (not all-time)
         - Reduces API usage by 80%+
 
-        This captures recent participants:
-        - Quick flippers (bought, sold in 1 hour)
-        - Swing traders (held 1 day, took profit)
-        - Recent diamond hands
-        - Recent sellers
-
-        Why 7 days is enough:
-        - Fresh tokens (<24h) only have 1-2 days of history anyway
-        - Recent activity is more predictive than old history
-        - Reduces Helius API costs dramatically
-
         Args:
             token_address: Token mint address
-            limit: Max number of transactions to scan (default 1000, reduced from 5000)
-            max_days: Max days to look back (default 7, for cost optimization)
+            limit: Max number of transactions to scan (default 1000)
+            max_days: Max days to look back (default 7)
 
         Returns:
             List of wallet addresses that held this token recently
@@ -644,81 +714,134 @@ class LaunchTracker:
         historical_wallets = set()
 
         try:
-            # Get recent transaction signatures for this token
             logger.info(f"Getting historical transactions for {token_address[:8]} (last {max_days} days)...")
 
-            url = f"https://api.helius.xyz/v0/addresses/{token_address}/transactions"
-            params = {
-                "api-key": self.api_key,
-                "limit": min(limit, 1000)  # Helius max is 1000 per request
-            }
+            # Get API key from rotator (FREE pool for background jobs)
+            api_key = await self._get_api_key()
 
-            # Calculate cutoff time for max_days
+            # Use Helius RPC for getSignaturesForAddress (more reliable than Enhanced API)
+            rpc_url = f"https://mainnet.helius-rpc.com/?api-key={api_key}"
+
+            # Calculate cutoff time
             cutoff_time = datetime.now() - timedelta(days=max_days)
-            cutoff_timestamp = cutoff_time.timestamp()
+            cutoff_timestamp = int(cutoff_time.timestamp())
 
-            total_txs = 0
+            total_sigs = 0
             before_signature = None
+            all_signatures = []
 
-            # Paginate through transactions (limited by time window)
-            while total_txs < limit:
-                if before_signature:
-                    params['before'] = before_signature
+            # Step 1: Get all transaction signatures using RPC
+            async with aiohttp.ClientSession() as session:
+                while total_sigs < limit:
+                    # Build RPC request for getSignaturesForAddress
+                    rpc_params = [
+                        token_address,
+                        {
+                            "limit": min(1000, limit - total_sigs),  # Max 1000 per request
+                        }
+                    ]
 
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, params=params, timeout=30) as response:
-                        if response.status != 200:
-                            logger.warning(f"Helius API error: {response.status}")
-                            break
+                    if before_signature:
+                        rpc_params[1]["before"] = before_signature
 
-                        txs = await response.json()
+                    payload = {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "getSignaturesForAddress",
+                        "params": rpc_params
+                    }
 
-                        if not txs or len(txs) == 0:
-                            break  # No more transactions
+                    try:
+                        async with session.post(rpc_url, json=payload, timeout=30) as response:
+                            if response.status != 200:
+                                error_text = await response.text()
+                                logger.warning(f"Helius RPC error {response.status}: {error_text[:200]}")
+                                break
 
-                        logger.info(f"  Processing batch of {len(txs)} transactions (total: {total_txs})...")
+                            data = await response.json()
 
-                        # Parse each transaction for token transfers
-                        for tx in txs:
-                            try:
-                                # Check transaction timestamp - stop if too old
-                                tx_timestamp = tx.get('timestamp', 0)
-                                if tx_timestamp < cutoff_timestamp:
-                                    logger.info(f"  Reached transactions older than {max_days} days, stopping scan")
-                                    total_txs = limit  # Force exit from outer loop
+                            if 'error' in data:
+                                logger.warning(f"RPC error: {data['error']}")
+                                break
+
+                            result = data.get('result', [])
+
+                            if not result:
+                                logger.info(f"  No more signatures found")
+                                break
+
+                            # Check timestamps and filter
+                            for sig_info in result:
+                                block_time = sig_info.get('blockTime', 0)
+                                if block_time and block_time < cutoff_timestamp:
+                                    logger.info(f"  Reached transactions older than {max_days} days")
+                                    total_sigs = limit  # Force exit
                                     break
 
-                                token_transfers = tx.get('tokenTransfers', [])
+                                all_signatures.append(sig_info.get('signature'))
 
-                                for transfer in token_transfers:
-                                    # Only process transfers for this token
-                                    if transfer.get('mint') != token_address:
-                                        continue
+                            total_sigs += len(result)
+                            logger.info(f"  Fetched {len(result)} signatures (total: {total_sigs})")
 
-                                    # Get wallet that RECEIVED tokens (buyer/recipient)
-                                    to_wallet = transfer.get('toUserAccount')
-                                    if to_wallet:
-                                        historical_wallets.add(to_wallet)
+                            # Set pagination cursor
+                            if result:
+                                before_signature = result[-1].get('signature')
 
-                            except Exception as e:
-                                logger.debug(f"Error parsing transaction: {e}")
+                            # If we got less than requested, we're done
+                            if len(result) < 1000:
+                                break
 
-                        total_txs += len(txs)
+                            await asyncio.sleep(0.2)  # Rate limiting
 
-                        # Set before_signature for next page
-                        if len(txs) > 0:
-                            # Get last transaction signature for pagination
-                            last_tx = txs[-1]
-                            before_signature = last_tx.get('signature')
+                    except asyncio.TimeoutError:
+                        logger.warning("RPC timeout, continuing...")
+                        break
+                    except Exception as e:
+                        logger.warning(f"RPC request failed: {e}")
+                        break
 
-                        # If we got less than requested, we're done
-                        if len(txs) < params['limit']:
-                            break
+            logger.info(f"  Found {len(all_signatures)} transaction signatures")
 
-                        # Rate limiting
-                        await asyncio.sleep(0.5)
+            # Step 2: Parse transactions in batches using Enhanced API
+            if all_signatures:
+                batch_size = 100
+                for i in range(0, min(len(all_signatures), 500), batch_size):  # Limit to 500 tx parsing
+                    batch = all_signatures[i:i + batch_size]
 
-            logger.info(f"  Scanned {total_txs} historical transactions")
+                    # Use parseTransactions endpoint for batch parsing
+                    parse_api_key = await self._get_api_key()
+                    parse_url = f"https://api.helius.xyz/v0/transactions"
+                    params = {"api-key": parse_api_key}
+
+                    try:
+                        async with session.post(
+                            parse_url,
+                            params=params,
+                            json={"transactions": batch},
+                            timeout=30
+                        ) as response:
+                            if response.status == 200:
+                                txs = await response.json()
+
+                                for tx in txs:
+                                    token_transfers = tx.get('tokenTransfers', [])
+                                    for transfer in token_transfers:
+                                        if transfer.get('mint') == token_address:
+                                            to_wallet = transfer.get('toUserAccount')
+                                            from_wallet = transfer.get('fromUserAccount')
+                                            if to_wallet:
+                                                historical_wallets.add(to_wallet)
+                                            if from_wallet:
+                                                historical_wallets.add(from_wallet)
+                            else:
+                                logger.debug(f"Parse batch failed: {response.status}")
+
+                    except Exception as e:
+                        logger.debug(f"Batch parse error: {e}")
+
+                    await asyncio.sleep(0.3)  # Rate limiting
+
+            logger.info(f"  Scanned {len(all_signatures)} historical transactions")
             logger.info(f"  Found {len(historical_wallets)} unique historical holders")
 
         except Exception as e:
@@ -809,8 +932,9 @@ class LaunchTracker:
         }
 
         # Get wallet's recent buys
+        api_key = await self._get_api_key()
         url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions"
-        params = {"api-key": self.api_key, "limit": 100}
+        params = {"api-key": api_key, "limit": 100}
 
         buy_times = []
         profitable_buys = 0
@@ -940,8 +1064,13 @@ class AirdropTracker:
     """
 
     def __init__(self):
-        self.api_key = HELIUS_API_KEY
+        self.rotator = helius_rotator  # Use FREE key rotation
+        self.api_key = HELIUS_API_KEY  # Legacy fallback
         self.airdrop_recipients: Dict[str, List[AirdropRecipient]] = {}
+
+    async def _get_api_key(self) -> str:
+        """Get next API key from rotator (FREE pool)."""
+        return await self.rotator.get_key()
 
     async def detect_airdrops(self, token_address: str, launch_time: datetime) -> List[AirdropRecipient]:
         """
@@ -953,8 +1082,9 @@ class AirdropTracker:
         - Within first 24 hours of launch
         - Often large amounts (>1% of supply)
         """
+        api_key = await self._get_api_key()
         url = f"https://api.helius.xyz/v0/addresses/{token_address}/transactions"
-        params = {"api-key": self.api_key, "limit": 200}
+        params = {"api-key": api_key, "limit": 200}
 
         recipients = []
 
@@ -1038,8 +1168,9 @@ class AirdropTracker:
 
         This is a key signal: Team/insiders dumping = exit signal for others!
         """
+        api_key = await self._get_api_key()
         url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions"
-        params = {"api-key": self.api_key, "limit": 100}
+        params = {"api-key": api_key, "limit": 100}
 
         sell_data = {
             'has_sold': False,

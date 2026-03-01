@@ -13,6 +13,7 @@ import json
 
 from config.settings import HELIUS_API_KEY
 from database import get_connection
+from collectors.helius import helius_rotator  # Uses FREE keys for background jobs
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +53,15 @@ class ClusterDetector:
     """
 
     def __init__(self):
-        self.api_key = HELIUS_API_KEY
+        self.rotator = helius_rotator  # Use FREE key rotation for background jobs
+        self.api_key = HELIUS_API_KEY  # Legacy fallback
         self.connections: Dict[Tuple[str, str], WalletConnection] = {}
         self.clusters: Dict[str, WalletCluster] = {}
         self.wallet_to_cluster: Dict[str, str] = {}
+
+    async def _get_api_key(self) -> str:
+        """Get next API key from rotator (FREE pool)."""
+        return await self.rotator.get_key()
 
     async def analyze_wallet_connections(self, wallet: str) -> List[WalletConnection]:
         """Find all wallets connected to a given wallet."""
@@ -116,8 +122,9 @@ class ClusterDetector:
     async def _get_funding_sources(self, wallet: str) -> List[str]:
         """Get wallets that funded this wallet with SOL."""
         funders = []
+        api_key = await self._get_api_key()
         url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions"
-        params = {"api-key": self.api_key, "limit": 100}
+        params = {"api-key": api_key, "limit": 100}
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -146,8 +153,9 @@ class ClusterDetector:
     async def _get_funded_wallets(self, funder: str) -> List[str]:
         """Get wallets that this funder sent SOL to."""
         funded = []
+        api_key = await self._get_api_key()
         url = f"https://api.helius.xyz/v0/addresses/{funder}/transactions"
-        params = {"api-key": self.api_key, "limit": 100}
+        params = {"api-key": api_key, "limit": 100}
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -176,8 +184,9 @@ class ClusterDetector:
     async def _get_transfer_partners(self, wallet: str) -> Dict[str, int]:
         """Get wallets that have transferred tokens directly with this wallet."""
         partners = defaultdict(int)
+        api_key = await self._get_api_key()
         url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions"
-        params = {"api-key": self.api_key, "limit": 100}
+        params = {"api-key": api_key, "limit": 100}
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -239,8 +248,9 @@ class ClusterDetector:
     async def _get_wallet_token_buys(self, wallet: str) -> Dict[str, float]:
         """Get recent token buys for a wallet. Returns {token_address: timestamp}"""
         buys = {}
+        api_key = await self._get_api_key()
         url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions"
-        params = {"api-key": self.api_key, "limit": 50}
+        params = {"api-key": api_key, "limit": 50}
 
         try:
             async with aiohttp.ClientSession() as session:

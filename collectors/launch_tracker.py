@@ -553,7 +553,7 @@ class LaunchTracker:
         """
         api_key = await self._get_api_key()
         url = f"https://api.helius.xyz/v0/addresses/{token_address}/transactions"
-        params = {"api-key": api_key, "limit": 200}  # Get more to filter
+        params = {"api-key": api_key, "limit": 100}  # Reduced from 200
 
         buyers = []
 
@@ -693,206 +693,51 @@ class LaunchTracker:
     async def get_historical_token_holders(self, token_address: str, limit: int = 1000,
                                             max_days: int = 7) -> List[str]:
         """
-        Get wallets that held this token in recent history (optimized for API usage).
+        DEPRECATED: Historical queries removed to avoid 429 errors.
 
-        Uses Solana RPC getSignaturesForAddress for reliable transaction fetching,
-        then parses each transaction for token transfers.
-
-        OPTIMIZATION: Limited to last 7 days to reduce Helius API costs.
-        - Scans up to 1000 transactions (reduced from 5000)
-        - Only looks back 7 days (not all-time)
-        - Reduces API usage by 80%+
+        Now just returns current holders instead.
+        Use get_token_holders() directly for current holder data.
 
         Args:
             token_address: Token mint address
-            limit: Max number of transactions to scan (default 1000)
-            max_days: Max days to look back (default 7)
+            limit: Ignored
+            max_days: Ignored
 
         Returns:
-            List of wallet addresses that held this token recently
+            Empty list (historical queries disabled)
         """
-        historical_wallets = set()
-
-        try:
-            logger.info(f"Getting historical transactions for {token_address[:8]} (last {max_days} days)...")
-
-            # Get API key from rotator (FREE pool for background jobs)
-            api_key = await self._get_api_key()
-
-            # Use Helius RPC for getSignaturesForAddress (more reliable than Enhanced API)
-            rpc_url = f"https://mainnet.helius-rpc.com/?api-key={api_key}"
-
-            # Calculate cutoff time
-            cutoff_time = datetime.now() - timedelta(days=max_days)
-            cutoff_timestamp = int(cutoff_time.timestamp())
-
-            total_sigs = 0
-            before_signature = None
-            all_signatures = []
-
-            # Step 1: Get all transaction signatures using RPC
-            async with aiohttp.ClientSession() as session:
-                while total_sigs < limit:
-                    # Build RPC request for getSignaturesForAddress
-                    rpc_params = [
-                        token_address,
-                        {
-                            "limit": min(1000, limit - total_sigs),  # Max 1000 per request
-                        }
-                    ]
-
-                    if before_signature:
-                        rpc_params[1]["before"] = before_signature
-
-                    payload = {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "getSignaturesForAddress",
-                        "params": rpc_params
-                    }
-
-                    try:
-                        async with session.post(rpc_url, json=payload, timeout=30) as response:
-                            if response.status != 200:
-                                error_text = await response.text()
-                                logger.warning(f"Helius RPC error {response.status}: {error_text[:200]}")
-                                break
-
-                            data = await response.json()
-
-                            if 'error' in data:
-                                logger.warning(f"RPC error: {data['error']}")
-                                break
-
-                            result = data.get('result', [])
-
-                            if not result:
-                                logger.info(f"  No more signatures found")
-                                break
-
-                            # Check timestamps and filter
-                            for sig_info in result:
-                                block_time = sig_info.get('blockTime', 0)
-                                if block_time and block_time < cutoff_timestamp:
-                                    logger.info(f"  Reached transactions older than {max_days} days")
-                                    total_sigs = limit  # Force exit
-                                    break
-
-                                all_signatures.append(sig_info.get('signature'))
-
-                            total_sigs += len(result)
-                            logger.info(f"  Fetched {len(result)} signatures (total: {total_sigs})")
-
-                            # Set pagination cursor
-                            if result:
-                                before_signature = result[-1].get('signature')
-
-                            # If we got less than requested, we're done
-                            if len(result) < 1000:
-                                break
-
-                            await asyncio.sleep(0.2)  # Rate limiting
-
-                    except asyncio.TimeoutError:
-                        logger.warning("RPC timeout, continuing...")
-                        break
-                    except Exception as e:
-                        logger.warning(f"RPC request failed: {e}")
-                        break
-
-            logger.info(f"  Found {len(all_signatures)} transaction signatures")
-
-            # Step 2: Parse transactions in batches using Enhanced API
-            if all_signatures:
-                batch_size = 100
-                for i in range(0, min(len(all_signatures), 500), batch_size):  # Limit to 500 tx parsing
-                    batch = all_signatures[i:i + batch_size]
-
-                    # Use parseTransactions endpoint for batch parsing
-                    parse_api_key = await self._get_api_key()
-                    parse_url = f"https://api.helius.xyz/v0/transactions"
-                    params = {"api-key": parse_api_key}
-
-                    try:
-                        async with session.post(
-                            parse_url,
-                            params=params,
-                            json={"transactions": batch},
-                            timeout=30
-                        ) as response:
-                            if response.status == 200:
-                                txs = await response.json()
-
-                                for tx in txs:
-                                    token_transfers = tx.get('tokenTransfers', [])
-                                    for transfer in token_transfers:
-                                        if transfer.get('mint') == token_address:
-                                            to_wallet = transfer.get('toUserAccount')
-                                            from_wallet = transfer.get('fromUserAccount')
-                                            if to_wallet:
-                                                historical_wallets.add(to_wallet)
-                                            if from_wallet:
-                                                historical_wallets.add(from_wallet)
-                            else:
-                                logger.debug(f"Parse batch failed: {response.status}")
-
-                    except Exception as e:
-                        logger.debug(f"Batch parse error: {e}")
-
-                    await asyncio.sleep(0.3)  # Rate limiting
-
-            logger.info(f"  Scanned {len(all_signatures)} historical transactions")
-            logger.info(f"  Found {len(historical_wallets)} unique historical holders")
-
-        except Exception as e:
-            logger.error(f"Failed to get historical holders: {e}")
-
-        return list(historical_wallets)
+        # DISABLED: Historical transaction queries cause 429 rate limit errors
+        # All getSignaturesForAddress and transaction parsing removed
+        # Use get_token_holders() for current holders instead
+        logger.info(f"Historical queries disabled for {token_address[:8]}... (use current holders)")
+        return []
 
     async def get_all_token_wallets(self, token_address: str, min_balance: float = 0,
-                                     use_historical: bool = True) -> List[str]:
+                                     use_historical: bool = False) -> List[str]:
         """
-        Get ALL wallets associated with a token (complete blueprint).
+        Get current holders of a token (optimized - no historical queries).
 
-        Combines:
-        1. Current holders (anyone with balance > 0 now)
-        2. Recent traders (buyers/sellers from recent transactions)
-        3. Historical holders (EVERYONE who ever held the token) ← NEW!
-
-        This gives COMPLETE coverage of all wallets that ever interacted with the token.
+        OPTIMIZATION: Historical queries removed to avoid 429 errors.
+        Now only fetches current holders via getTokenLargestAccounts (cheap RPC call).
 
         Args:
             token_address: Token mint address
             min_balance: Minimum balance for current holders (default 0)
-            use_historical: Include historical holders (default True for complete scan)
+            use_historical: IGNORED - historical queries disabled
 
         Returns:
-            List of wallet addresses (deduplicated)
+            List of wallet addresses (current holders only)
         """
         all_wallets = set()
 
-        # 1. Get current holders (conviction wallets - still holding)
+        # Get current holders (conviction wallets - still holding)
+        # This uses getTokenLargestAccounts which is a cheap RPC call
         logger.info(f"Getting current holders for {token_address[:8]}...")
         holders = await self.get_token_holders(token_address, min_balance=min_balance)
         for holder in holders:
             all_wallets.add(holder['wallet'])
-        logger.info(f"  Found {len(holders)} current holders")
 
-        # 2. Get recent traders (active wallets - last 24h)
-        logger.info(f"Getting recent traders for {token_address[:8]}...")
-        traders = await self.get_first_buyers(token_address, limit=200, min_minutes=0, max_minutes=1440)  # 24h window
-        all_wallets.update(traders)
-        logger.info(f"  Found {len(traders)} recent traders")
-
-        # 3. Get historical holders (last 7 days) - OPTIMIZED FOR API COST
-        if use_historical:
-            logger.info(f"Getting recent historical holders for {token_address[:8]} (last 7 days)...")
-            historical = await self.get_historical_token_holders(token_address, limit=1000, max_days=7)
-            all_wallets.update(historical)
-            logger.info(f"  Found {len(historical)} historical holders (last 7 days)")
-
-        logger.info(f"Total unique wallets for {token_address[:8]}: {len(all_wallets)}")
-        logger.info(f"  Breakdown: {len(holders)} current + {len(traders)} recent + {len(historical) if use_historical else 0} historical")
+        logger.info(f"Found {len(all_wallets)} current holders for {token_address[:8]}")
         return list(all_wallets)
 
     def _extract_buyer(self, tx: Dict, token_address: str) -> Optional[str]:
@@ -931,10 +776,10 @@ class LaunchTracker:
             'detected_pattern': None,
         }
 
-        # Get wallet's recent buys
+        # Get wallet's recent buys (reduced to 50 to save API calls)
         api_key = await self._get_api_key()
         url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions"
-        params = {"api-key": api_key, "limit": 100}
+        params = {"api-key": api_key, "limit": 50}
 
         buy_times = []
         profitable_buys = 0
@@ -1084,7 +929,7 @@ class AirdropTracker:
         """
         api_key = await self._get_api_key()
         url = f"https://api.helius.xyz/v0/addresses/{token_address}/transactions"
-        params = {"api-key": api_key, "limit": 200}
+        params = {"api-key": api_key, "limit": 100}  # Reduced from 200
 
         recipients = []
 
@@ -1098,8 +943,8 @@ class AirdropTracker:
                             tx_time = datetime.fromtimestamp(tx.get('timestamp', 0))
                             time_since_launch = (tx_time - launch_time).total_seconds() / 60
 
-                            # Only check first 24 hours
-                            if time_since_launch > 1440:  # 24 hours
+                            # Only check first 3 hours (reduced from 24h for fresh tokens)
+                            if time_since_launch > 180:  # 3 hours
                                 continue
 
                             # Look for airdrop transfers (token IN, no SOL OUT)
@@ -1320,103 +1165,82 @@ class InsiderScanner:
             await asyncio.sleep(self.scan_interval)
 
     async def _scan_cycle(self):
-        """Run one scan cycle with smart wallet selection strategy."""
-        # 1. Get fresh launches (0-24 hours old - from birth!)
+        """
+        Run one scan cycle - OPTIMIZED to avoid 429 errors.
+
+        Strategy:
+        - Tokens 0-3h: Current holders + airdrop detection
+        - Tokens 3-24h: Current holders only (no airdrops)
+        - NO historical transaction queries (eliminated 90% of API calls)
+        """
+        # 1. Get fresh launches (0-24 hours old)
         tokens = await self.tracker.scan_fresh_launches()
         logger.info(f"Found {len(tokens)} fresh tokens (0-24h old)")
 
-        # 2. For each token, use SMART STRATEGY based on age
-        # OPTIMIZATION: Only process top 5 freshest tokens to reduce API costs
-        for token in tokens[:5]:  # Process only 5 freshest tokens per cycle
-            # Calculate token age
-            now = datetime.now()
-            age_hours = (now - token.launch_time).total_seconds() / 3600
-            age_minutes = age_hours * 60
+        # 2. Process top 10 freshest tokens (increased from 5 since we removed historical)
+        for token in tokens[:10]:
+            try:
+                # Calculate token age
+                now = datetime.now()
+                age_hours = (now - token.launch_time).total_seconds() / 3600
 
-            logger.info(f"  {token.symbol}: Age {age_hours:.1f}h ({age_minutes:.0f} min)")
+                logger.info(f"  {token.symbol}: Age {age_hours:.1f}h")
 
-            # SMART STRATEGY: Different approach based on token age
-            if age_hours < 1:
-                # FRESH TOKEN (<1 hour): Scan current holders + traders
-                # Reasoning: No one has sold yet, everyone still holding
-                logger.info(f"  {token.symbol}: FRESH token - scanning current holders + traders")
+                # Get current holders (cheap RPC call - getTokenLargestAccounts)
+                logger.info(f"  {token.symbol}: Getting current holders...")
                 all_wallets = await self.tracker.get_all_token_wallets(
                     token.address,
-                    min_balance=0,
-                    use_historical=True  # Include some recent history
+                    min_balance=0
                 )
-                logger.info(f"  {token.symbol}: Found {len(all_wallets)} wallets (current + recent)")
+                logger.info(f"  {token.symbol}: Found {len(all_wallets)} current holders")
 
-                # Also detect airdrops for fresh tokens (team members)
-                logger.info(f"  Scanning for airdrop recipients (team members)...")
-                airdrop_recipients = await self.airdrop_tracker.detect_airdrops(
-                    token.address,
-                    token.launch_time
-                )
-                logger.info(f"  Found {len(airdrop_recipients)} airdrop recipients")
+                # FRESH TOKENS ONLY (0-3h): Also detect airdrops
+                if age_hours < 3:
+                    logger.info(f"  {token.symbol}: FRESH - scanning for airdrop recipients...")
+                    try:
+                        airdrop_recipients = await self.airdrop_tracker.detect_airdrops(
+                            token.address,
+                            token.launch_time
+                        )
+                        logger.info(f"  Found {len(airdrop_recipients)} airdrop recipients")
 
-                # Save airdrop recipients
-                for recipient in airdrop_recipients:
-                    await self.airdrop_tracker.save_airdrop_recipient(recipient)
-                    await self._add_airdrop_wallet_to_pool(recipient.wallet_address)
+                        # Save airdrop recipients (skip sell tracking to save API calls)
+                        for recipient in airdrop_recipients:
+                            await self.airdrop_tracker.save_airdrop_recipient(recipient)
+                            await self._add_airdrop_wallet_to_pool(recipient.wallet_address)
 
-                    # Track their sells
-                    sell_data = await self.airdrop_tracker.track_airdrop_sells(
-                        recipient.wallet_address,
-                        token.address
-                    )
+                    except Exception as e:
+                        logger.warning(f"  Airdrop detection failed: {e}")
+                else:
+                    logger.info(f"  {token.symbol}: OLDER - skipping airdrop detection")
 
-                    if sell_data['has_sold']:
-                        recipient.has_sold = True
-                        recipient.sold_amount = sell_data['sold_amount']
-                        recipient.sold_at = sell_data['sold_at']
+                # 3. Analyze current holders for patterns (limit to 30 to save API)
+                wallets_to_analyze = all_wallets[:30]
 
-                        if recipient.received_time and sell_data['sold_at']:
-                            recipient.hold_duration_min = int(
-                                (sell_data['sold_at'] - recipient.received_time).total_seconds() / 60
-                            )
+                if wallets_to_analyze:
+                    logger.info(f"  Analyzing {len(wallets_to_analyze)} wallets for patterns...")
 
-                        # Generate alert
-                        alert = await self.airdrop_tracker.generate_sell_alert(recipient, token.symbol)
-                        if alert:
-                            logger.warning(alert)
+                    for wallet in wallets_to_analyze:
+                        try:
+                            patterns = await self.tracker.analyze_buyer_patterns(wallet)
 
-                        # Update in database
-                        await self.airdrop_tracker.save_airdrop_recipient(recipient)
+                            if patterns.get('detected_pattern'):
+                                await self.tracker.save_insider_to_db(wallet, patterns)
+                                logger.info(f"    Insider: {wallet[:16]}... - {patterns['detected_pattern']}")
+                        except Exception as e:
+                            logger.debug(f"    Pattern analysis failed for {wallet[:12]}...: {e}")
 
-            else:
-                # OLDER TOKEN (1-24 hours): Scan ALL historical buyers
-                # Reasoning: Current holders = bag holders
-                #            Winners already took profit and left
-                #            We want to find the WINNERS, not bag holders!
-                logger.info(f"  {token.symbol}: OLDER token - scanning ALL historical buyers (not bag holders)")
-                all_wallets = await self.tracker.get_historical_token_holders(
-                    token.address,
-                    limit=1000,
-                    max_days=7
-                )
-                logger.info(f"  {token.symbol}: Found {len(all_wallets)} historical buyers (since creation)")
-                logger.info(f"  Strategy: Skip current holders (bag holders), find winners who took profit")
+                        # Rate limit between wallet analyses
+                        await asyncio.sleep(0.5)
 
-                # Skip airdrop detection for older tokens (already sold)
-                logger.info(f"  Skipping airdrop detection (older token - airdrops already sold)")
+                # Rate limiting between tokens
+                await asyncio.sleep(1)
 
-            # 3. Analyze wallets (limit to top 50 per token to avoid overload)
-            wallets_to_analyze = all_wallets[:50]
-            logger.info(f"  Analyzing {len(wallets_to_analyze)} wallets for patterns...")
+            except Exception as e:
+                logger.error(f"  Error processing {token.symbol}: {e}")
+                continue
 
-            for wallet in wallets_to_analyze:
-                patterns = await self.tracker.analyze_buyer_patterns(wallet)
-
-                # 4. If pattern detected, save to db
-                if patterns.get('detected_pattern'):
-                    await self.tracker.save_insider_to_db(wallet, patterns)
-                    logger.info(f"    Insider detected: {wallet[:20]}... - {patterns['detected_pattern']}")
-
-            # Rate limiting between tokens
-            await asyncio.sleep(1)
-
-        # 5. Check for promotion to main pool
+        # 4. Check for promotion to main pool
         await self._check_promotions()
 
     async def _add_airdrop_wallet_to_pool(self, wallet: str):

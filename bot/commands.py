@@ -14,7 +14,9 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
+    MessageHandler,
     ContextTypes,
+    filters,
 )
 from telegram.constants import ParseMode
 import aiohttp
@@ -22,11 +24,22 @@ import aiohttp
 from config.settings import TELEGRAM_BOT_TOKEN
 from database import get_connection
 from collectors.helius import helius_rotator
+from bot.utils import (
+    extract_wallet_from_text,
+    truncate_wallet,
+    format_wallet_for_user,
+    format_stats,
+    parse_remove_index,
+    is_valid_solana_address,
+)
 
 logger = logging.getLogger(__name__)
 
 # Admin user ID - ONLY this user can use commands
 ADMIN_USER_ID = None  # Will be set on first /start
+
+# Premium user IDs (can use watchlist features with truncated addresses)
+PREMIUM_USER_IDS = set()  # Load from database or config
 
 
 class CommandBot:
@@ -61,8 +74,17 @@ class CommandBot:
         self.application.add_handler(CommandHandler("clusters", self.cmd_clusters))
         self.application.add_handler(CommandHandler("early_birds", self.cmd_early_birds))
 
+        # Watchlist commands
+        self.application.add_handler(CommandHandler("add", self.cmd_add_wallet))
+        self.application.add_handler(CommandHandler("watchlist", self.cmd_watchlist))
+        self.application.add_handler(CommandHandler("remove_wallet", self.cmd_remove_wallet))
+        self.application.add_handler(CommandHandler("remove", self.cmd_remove_wallet))  # Alias
+
         # Register callback handler for inline buttons
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
+
+        # Initialize watchlist table
+        self._init_watchlist_table()
 
         await self.application.initialize()
         await self.application.start()
@@ -91,6 +113,41 @@ class CommandBot:
     def _is_private(self, update: Update) -> bool:
         """Check if message is in private chat."""
         return update.effective_chat.type == "private"
+
+    def _is_premium(self, user_id: int) -> bool:
+        """Check if user is premium (or admin)."""
+        if self._is_admin(user_id):
+            return True
+        return user_id in PREMIUM_USER_IDS
+
+    def _init_watchlist_table(self):
+        """Initialize user_watchlists table in database."""
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_watchlists (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    wallet_address TEXT NOT NULL,
+                    added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    win_rate REAL DEFAULT 0,
+                    roi REAL DEFAULT 0,
+                    total_trades INTEGER DEFAULT 0,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    notes TEXT,
+                    UNIQUE(user_id, wallet_address)
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_watchlist_user
+                ON user_watchlists(user_id)
+            """)
+            conn.commit()
+            conn.close()
+            logger.info("Watchlist table initialized")
+        except Exception as e:
+            logger.error(f"Failed to init watchlist table: {e}")
 
     # =========================================================================
     # COMMANDS
@@ -385,6 +442,338 @@ Welcome! You have full access to wallet tracking commands.
             logger.error(f"Leaderboard command failed: {e}")
             await update.message.reply_text(f"Error: {e}")
 
+    # =========================================================================
+    # WATCHLIST COMMANDS
+    # =========================================================================
+
+    async def cmd_add_wallet(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Add wallet from forwarded buy alert.
+
+        Usage: Forward a buy alert, then reply to it with /add
+        """
+        if not self._is_private(update):
+            return
+
+        user_id = update.effective_user.id
+
+        # Check if user is admin or premium
+        if not self._is_premium(user_id):
+            await update.message.reply_text(
+                "This feature is for premium users only.\n"
+                "Contact admin for access."
+            )
+            return
+
+        logger.info(f"Add wallet command from user {user_id}")
+
+        # Check if this is a reply to another message
+        reply_msg = update.message.reply_to_message
+        if not reply_msg:
+            await update.message.reply_text(
+                "**How to add a wallet:**\n\n"
+                "1. Forward a buy alert to this chat\n"
+                "2. Reply to that message with /add\n\n"
+                "The bot will extract the wallet address and add it to your watchlist.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        # Get text from replied message (could be forwarded)
+        text = reply_msg.text or reply_msg.caption or ""
+
+        if not text:
+            await update.message.reply_text(
+                "Could not read the message. Make sure the alert contains text."
+            )
+            return
+
+        # Extract wallet address
+        wallet = extract_wallet_from_text(text)
+
+        if not wallet:
+            await update.message.reply_text(
+                "Could not find a valid Solana wallet address in that message.\n\n"
+                "Make sure the alert contains a wallet address."
+            )
+            return
+
+        # Check if already in watchlist
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id FROM user_watchlists WHERE user_id = ? AND wallet_address = ?",
+            (user_id, wallet)
+        )
+        existing = cursor.fetchone()
+
+        if existing:
+            conn.close()
+            await update.message.reply_text(
+                f"This wallet is already in your watchlist.\n\n"
+                f"Wallet: {format_wallet_for_user(wallet, self._is_admin(user_id))}"
+            )
+            return
+
+        # Analyze wallet
+        await update.message.reply_text("Analyzing wallet...")
+
+        stats = await self._analyze_wallet_stats(wallet)
+
+        # Add to watchlist
+        cursor.execute("""
+            INSERT INTO user_watchlists (user_id, wallet_address, win_rate, roi, total_trades)
+            VALUES (?, ?, ?, ?, ?)
+        """, (user_id, wallet, stats['win_rate'], stats['roi'], stats['trades']))
+        conn.commit()
+        conn.close()
+
+        # Format response based on user level
+        wallet_display = format_wallet_for_user(wallet, self._is_admin(user_id))
+
+        message = f"""**Added to Watchlist**
+
+**Wallet:** {wallet_display}
+
+**Stats:**
+{format_stats(stats['win_rate'], stats['roi'], stats['trades'])}
+
+Use /watchlist to see all your watched wallets."""
+
+        await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+        logger.info(f"User {user_id} added wallet {wallet[:12]}... to watchlist")
+
+    async def cmd_watchlist(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show user's personal watchlist."""
+        if not self._is_private(update):
+            return
+
+        user_id = update.effective_user.id
+
+        if not self._is_premium(user_id):
+            await update.message.reply_text(
+                "This feature is for premium users only.\n"
+                "Contact admin for access."
+            )
+            return
+
+        logger.info(f"Watchlist command from user {user_id}")
+
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT wallet_address, win_rate, roi, total_trades, added_date
+            FROM user_watchlists
+            WHERE user_id = ?
+            ORDER BY added_date DESC
+        """, (user_id,))
+        wallets = cursor.fetchall()
+        conn.close()
+
+        if not wallets:
+            await update.message.reply_text(
+                "**Your Watchlist**\n\n"
+                "No wallets yet.\n\n"
+                "To add a wallet:\n"
+                "1. Forward a buy alert here\n"
+                "2. Reply to it with /add",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        is_admin = self._is_admin(user_id)
+
+        message = f"**Your Watchlist** ({len(wallets)} wallets)\n\n"
+
+        for i, (wallet, win_rate, roi, trades, added) in enumerate(wallets, 1):
+            wallet_display = format_wallet_for_user(wallet, is_admin)
+
+            # Win rate emoji
+            wr_emoji = "" if win_rate >= 0.6 else "" if win_rate >= 0.4 else ""
+
+            message += f"**{i}.** {wallet_display}\n"
+            message += f"   {wr_emoji} WR: {win_rate*100:.0f}% | ROI: {roi:+.0f}% | Trades: {trades}\n"
+
+            # Add links for admin
+            if is_admin:
+                message += f"   [Solscan](https://solscan.io/account/{wallet}) | "
+                message += f"[Birdeye](https://birdeye.so/profile/{wallet}?chain=solana)\n"
+
+            message += "\n"
+
+        message += "_Use /remove\\_wallet [number] to remove_"
+
+        # Split if too long
+        if len(message) > 4000:
+            parts = []
+            current = ""
+            for line in message.split('\n'):
+                if len(current) + len(line) + 1 > 4000:
+                    parts.append(current)
+                    current = line
+                else:
+                    current += '\n' + line if current else line
+            if current:
+                parts.append(current)
+
+            for part in parts:
+                await update.message.reply_text(part, parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+
+    async def cmd_remove_wallet(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Remove a wallet from watchlist by index."""
+        if not self._is_private(update):
+            return
+
+        user_id = update.effective_user.id
+
+        if not self._is_premium(user_id):
+            await update.message.reply_text(
+                "This feature is for premium users only."
+            )
+            return
+
+        logger.info(f"Remove wallet command from user {user_id}")
+
+        # Parse index from command
+        text = update.message.text or ""
+        index = parse_remove_index(text)
+
+        if not index:
+            await update.message.reply_text(
+                "**Usage:** /remove_wallet [number]\n\n"
+                "Example: /remove_wallet 1\n\n"
+                "Use /watchlist to see numbered list.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        # Get user's wallets
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, wallet_address FROM user_watchlists
+            WHERE user_id = ?
+            ORDER BY added_date DESC
+        """, (user_id,))
+        wallets = cursor.fetchall()
+
+        if index > len(wallets):
+            conn.close()
+            await update.message.reply_text(
+                f"Invalid index. You have {len(wallets)} wallets in your watchlist."
+            )
+            return
+
+        # Get the wallet at that index
+        wallet_id, wallet_addr = wallets[index - 1]
+
+        # Delete it
+        cursor.execute("DELETE FROM user_watchlists WHERE id = ?", (wallet_id,))
+        conn.commit()
+        conn.close()
+
+        wallet_display = format_wallet_for_user(wallet_addr, self._is_admin(user_id))
+
+        await update.message.reply_text(
+            f"Removed from watchlist:\n{wallet_display}",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        logger.info(f"User {user_id} removed wallet {wallet_addr[:12]}... from watchlist")
+
+    async def _analyze_wallet_stats(self, wallet: str) -> Dict:
+        """Analyze a wallet and return stats (win rate, ROI, trades)."""
+        stats = {
+            'win_rate': 0.0,
+            'roi': 0.0,
+            'trades': 0,
+        }
+
+        try:
+            api_key = await self.rotator.get_key()
+            url = f"{self.helius_url}/addresses/{wallet}/transactions?api-key={api_key}&limit=100"
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=30) as response:
+                    if response.status != 200:
+                        logger.warning(f"Failed to fetch wallet txs: {response.status}")
+                        return stats
+
+                    txs = await response.json()
+
+            # Track token positions: token -> {sol_spent, sol_earned}
+            token_positions = {}
+
+            skip_tokens = {
+                'So11111111111111111111111111111111111111112',
+                'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+                'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+            }
+
+            for tx in txs:
+                token_transfers = tx.get('tokenTransfers', [])
+                native_transfers = tx.get('nativeTransfers', [])
+
+                for transfer in token_transfers:
+                    mint = transfer.get('mint', '')
+                    if mint in skip_tokens:
+                        continue
+
+                    to_wallet = transfer.get('toUserAccount')
+                    from_wallet = transfer.get('fromUserAccount')
+
+                    if mint not in token_positions:
+                        token_positions[mint] = {'sol_spent': 0, 'sol_earned': 0}
+
+                    # Calculate SOL amount for this tx
+                    sol_amount = 0
+                    for nt in native_transfers:
+                        if nt.get('fromUserAccount') == wallet:
+                            sol_amount += abs(nt.get('amount', 0)) / 1e9
+                        elif nt.get('toUserAccount') == wallet:
+                            sol_amount -= abs(nt.get('amount', 0)) / 1e9
+
+                    if to_wallet == wallet:  # Buy
+                        token_positions[mint]['sol_spent'] += abs(sol_amount)
+                    elif from_wallet == wallet:  # Sell
+                        token_positions[mint]['sol_earned'] += abs(sol_amount)
+
+            # Calculate stats
+            total_spent = 0
+            total_earned = 0
+            wins = 0
+            closed_trades = 0
+
+            for token, pos in token_positions.items():
+                spent = pos['sol_spent']
+                earned = pos['sol_earned']
+
+                if spent > 0:
+                    total_spent += spent
+
+                    if earned > 0:  # Closed position
+                        total_earned += earned
+                        closed_trades += 1
+
+                        if earned > spent:
+                            wins += 1
+
+            stats['trades'] = len(token_positions)
+
+            if closed_trades > 0:
+                stats['win_rate'] = wins / closed_trades
+
+            if total_spent > 0:
+                stats['roi'] = ((total_earned - total_spent) / total_spent) * 100
+
+            logger.info(f"Analyzed wallet {wallet[:12]}...: WR={stats['win_rate']:.0%}, ROI={stats['roi']:.0f}%, Trades={stats['trades']}")
+
+        except Exception as e:
+            logger.error(f"Failed to analyze wallet: {e}")
+
+        return stats
+
     async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Pool statistics."""
         if not self._is_private(update) or not self._is_admin(update.effective_user.id):
@@ -529,7 +918,16 @@ Buy alerts posted to channel when:
 /cron - Cron job status & control
 /logs - View system logs
 /restart - Restart components
-/help - This guide"""
+/help - This guide
+
+**👁️ WATCHLIST**
+/add - Reply to forwarded alert to add wallet
+/watchlist - View your watched wallets + stats
+/remove [n] - Remove wallet by number
+
+_Watchlist wallets send personal DM alerts:_
+_• BUY: When they buy ≥1.5 SOL_
+_• SELL: When they sell (shows P/L if entry tracked)_"""
 
             await update.message.reply_text(msg1, parse_mode=ParseMode.MARKDOWN)
             await update.message.reply_text(msg2, parse_mode=ParseMode.MARKDOWN)

@@ -1,10 +1,9 @@
 """
 Real-Time Monitoring Bot
-- ONLY monitors BUY transactions
+- Monitors BUY transactions for qualified wallets (public channel)
+- Monitors BUY transactions for user watchlist wallets (personal DM alerts)
 - ONLY alerts on transactions < 5 minutes old
-- ONLY alerts if buy amount >= 1 SOL
-- Uses correct alert format
-- NO wallet address shown
+- ONLY alerts if buy amount >= threshold (1 SOL qualified, 1.5 SOL watchlist)
 """
 import asyncio
 import logging
@@ -24,14 +23,119 @@ from config.settings import (
 from database import get_connection
 from bot.alert_formatter import AlertFormatter
 from collectors.helius import helius_premium_rotator  # Use PREMIUM key for real-time
+from bot.utils import truncate_wallet
 
 logger = logging.getLogger(__name__)
 
 # Configuration
-MIN_BUY_AMOUNT_SOL = 1.0  # Minimum 1 SOL to alert
-MAX_TX_AGE_MINUTES = 5    # Only alert on transactions < 5 minutes old
-POLL_INTERVAL = 30        # Seconds between polling cycles
-MIN_LAST_5_WIN_RATE = 0.60  # 60% minimum win rate on last 5 closed trades
+MIN_BUY_AMOUNT_SOL = 1.0       # Minimum 1 SOL for qualified wallet alerts
+MIN_WATCHLIST_BUY_SOL = 1.5    # Minimum 1.5 SOL for watchlist alerts
+MAX_TX_AGE_MINUTES = 5         # Only alert on transactions < 5 minutes old
+POLL_INTERVAL = 30             # Seconds between polling cycles
+MIN_LAST_5_WIN_RATE = 0.60     # 60% minimum win rate on last 5 closed trades
+
+# Admin user ID - sees full addresses
+ADMIN_USER_ID = 1153491543
+
+
+class WatchlistPositionTracker:
+    """Track token positions for watchlist wallets to calculate sell P/L."""
+
+    def __init__(self):
+        # (wallet, token) -> {sol_spent, token_amount, first_buy_time}
+        self.positions: Dict[tuple, Dict] = {}
+
+    def record_buy(self, wallet: str, token: str, sol_amount: float, timestamp: int):
+        """Record a buy for position tracking."""
+        key = (wallet, token)
+        if key not in self.positions:
+            self.positions[key] = {
+                'sol_spent': 0,
+                'first_buy_time': timestamp,
+            }
+        self.positions[key]['sol_spent'] += sol_amount
+        logger.debug(f"Position tracked: {wallet[:8]}... bought {sol_amount:.2f} SOL of {token[:8]}...")
+
+    def get_position(self, wallet: str, token: str) -> Optional[Dict]:
+        """Get position info for a wallet/token pair."""
+        return self.positions.get((wallet, token))
+
+    def close_position(self, wallet: str, token: str, sol_earned: float) -> Optional[Dict]:
+        """Close a position and return P/L info."""
+        key = (wallet, token)
+        pos = self.positions.get(key)
+        if not pos:
+            return None
+
+        sol_spent = pos['sol_spent']
+        first_buy_time = pos['first_buy_time']
+
+        # Calculate P/L
+        pnl_sol = sol_earned - sol_spent
+        pnl_pct = ((sol_earned - sol_spent) / sol_spent * 100) if sol_spent > 0 else 0
+
+        # Remove or reduce position
+        # For simplicity, we'll clear on any sell (could track partial sells later)
+        del self.positions[key]
+
+        return {
+            'entry_sol': sol_spent,
+            'exit_sol': sol_earned,
+            'pnl_sol': pnl_sol,
+            'pnl_pct': pnl_pct,
+            'first_buy_time': first_buy_time,
+        }
+
+
+class WatchlistTracker:
+    """Track user watchlist wallets and their owners."""
+
+    def __init__(self):
+        # wallet_address -> list of {user_id, added_date, win_rate, roi, nickname}
+        self.watchlist_wallets: Dict[str, List[Dict]] = {}
+
+    def load_watchlist_wallets(self):
+        """Load all user watchlist wallets from database."""
+        self.watchlist_wallets.clear()
+
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT user_id, wallet_address, added_date, win_rate, roi,
+                       total_trades, notes
+                FROM user_watchlists
+            """)
+            rows = cursor.fetchall()
+            conn.close()
+
+            for row in rows:
+                user_id, wallet, added, win_rate, roi, trades, notes = row
+
+                if wallet not in self.watchlist_wallets:
+                    self.watchlist_wallets[wallet] = []
+
+                self.watchlist_wallets[wallet].append({
+                    'user_id': user_id,
+                    'added_date': added,
+                    'win_rate': win_rate or 0,
+                    'roi': roi or 0,
+                    'trades': trades or 0,
+                    'nickname': notes or '',
+                })
+
+            logger.info(f"Loaded {len(self.watchlist_wallets)} watchlist wallets for {sum(len(v) for v in self.watchlist_wallets.values())} user subscriptions")
+
+        except Exception as e:
+            logger.warning(f"Failed to load watchlist wallets: {e}")
+
+    def get_wallet_subscribers(self, wallet_address: str) -> List[Dict]:
+        """Get all users subscribed to a wallet."""
+        return self.watchlist_wallets.get(wallet_address, [])
+
+    def is_watchlist_wallet(self, wallet_address: str) -> bool:
+        """Check if wallet is in any user's watchlist."""
+        return wallet_address in self.watchlist_wallets
 
 
 class SmartMoneyTracker:
@@ -125,9 +229,12 @@ class RealTimeBot:
 
         self.formatter = AlertFormatter()
         self.smart_money = SmartMoneyTracker()
+        self.watchlist = WatchlistTracker()
+        self.watchlist_positions = WatchlistPositionTracker()  # Track positions for sell P/L
         self.price_service = PriceService()
 
         self.qualified_wallets: Dict[str, Dict] = {}
+        self.watchlist_wallets: Set[str] = set()  # NEW: Watchlist wallet addresses
         self.last_signatures: Dict[str, str] = {}  # wallet -> last seen signature
         self.running = False
 
@@ -155,7 +262,12 @@ class RealTimeBot:
         # Also load for smart money tracker
         self.smart_money.load_wallet_tiers()
 
+        # Load watchlist wallets
+        self.watchlist.load_watchlist_wallets()
+        self.watchlist_wallets = set(self.watchlist.watchlist_wallets.keys())
+
         logger.info(f"Loaded {len(self.qualified_wallets)} qualified wallets")
+        logger.info(f"Loaded {len(self.watchlist_wallets)} watchlist wallets")
         return len(self.qualified_wallets)
 
     async def start(self):
@@ -168,17 +280,25 @@ class RealTimeBot:
             logger.warning("No qualified wallets to monitor!")
             return
 
-        logger.info(f"Starting real-time monitor for {count} wallets")
-        logger.info(f"  Min buy amount: {MIN_BUY_AMOUNT_SOL} SOL")
+        watchlist_count = len(self.watchlist_wallets)
+
+        logger.info(f"Starting real-time monitor")
+        logger.info(f"  Qualified wallets: {count}")
+        logger.info(f"  Watchlist wallets: {watchlist_count}")
+        logger.info(f"  Min buy (qualified): {MIN_BUY_AMOUNT_SOL} SOL")
+        logger.info(f"  Min buy (watchlist): {MIN_WATCHLIST_BUY_SOL} SOL")
         logger.info(f"  Max tx age: {MAX_TX_AGE_MINUTES} minutes")
         logger.info(f"  Poll interval: {POLL_INTERVAL} seconds")
 
         # Send startup message to OWNER (not public channel)
-        OWNER_USER_ID = 1153491543
         try:
             await self.bot.send_message(
-                chat_id=OWNER_USER_ID,
-                text=f"🚀 **SoulWinners Online**\n\nMonitoring {count} Elite wallets for buys ≥{MIN_BUY_AMOUNT_SOL} SOL",
+                chat_id=ADMIN_USER_ID,
+                text=f"🚀 **SoulWinners Online**\n\n"
+                     f"📊 Qualified wallets: {count}\n"
+                     f"👁️ Watchlist wallets: {watchlist_count}\n\n"
+                     f"Monitoring buys ≥{MIN_BUY_AMOUNT_SOL} SOL (qualified)\n"
+                     f"Monitoring buys ≥{MIN_WATCHLIST_BUY_SOL} SOL (watchlist)",
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception as e:
@@ -194,19 +314,40 @@ class RealTimeBot:
             await asyncio.sleep(POLL_INTERVAL)
 
     async def _poll_cycle(self):
-        """One polling cycle - check all wallets for new transactions."""
-        logger.info(f"📡 Poll cycle starting ({len(self.qualified_wallets)} wallets)...")
+        """One polling cycle - check qualified + watchlist wallets."""
+        total_qualified = len(self.qualified_wallets)
+        total_watchlist = len(self.watchlist_wallets)
+
+        logger.info(f"📡 Poll cycle starting ({total_qualified} qualified + {total_watchlist} watchlist)...")
+
         checked = 0
+
+        # Check qualified wallets (public channel alerts)
         for wallet_addr, wallet_data in self.qualified_wallets.items():
             try:
-                await self._check_wallet(wallet_addr, wallet_data)
+                await self._check_wallet(wallet_addr, wallet_data, is_watchlist=False)
                 checked += 1
-                await asyncio.sleep(2)  # Rate limit between wallets
+                await asyncio.sleep(1.5)  # Rate limit between wallets
             except Exception as e:
-                logger.warning(f"Error checking {wallet_addr[:15]}...: {e}")
+                logger.warning(f"Error checking qualified {wallet_addr[:15]}...: {e}")
+
+        # Check watchlist wallets (personal DM alerts)
+        for wallet_addr in self.watchlist_wallets:
+            # Skip if already checked as qualified wallet
+            if wallet_addr in self.qualified_wallets:
+                continue
+
+            try:
+                await self._check_wallet(wallet_addr, None, is_watchlist=True)
+                checked += 1
+                await asyncio.sleep(1.5)  # Rate limit between wallets
+            except Exception as e:
+                logger.warning(f"Error checking watchlist {wallet_addr[:15]}...: {e}")
+
         logger.info(f"📡 Poll cycle complete ({checked} wallets checked)")
 
-    async def _check_wallet(self, wallet_addr: str, wallet_data: Dict):
+    async def _check_wallet(self, wallet_addr: str, wallet_data: Optional[Dict],
+                            is_watchlist: bool = False):
         """Check a single wallet for new transactions using rotated API keys."""
         api_key = await self.rotator.get_key()
         url = f"{self.base_url}/addresses/{wallet_addr}/transactions?api-key={api_key}&limit=5"
@@ -247,59 +388,88 @@ class RealTimeBot:
             if tx.get('signature') == last_sig:
                 break  # Reached previously seen tx
 
-            await self._process_transaction(tx, wallet_addr, wallet_data)
+            await self._process_transaction(tx, wallet_addr, wallet_data, is_watchlist)
 
-    async def _process_transaction(self, tx: Dict, wallet_addr: str, wallet_data: Dict):
+    async def _process_transaction(self, tx: Dict, wallet_addr: str,
+                                    wallet_data: Optional[Dict], is_watchlist: bool = False):
         """Process a transaction and potentially send alert."""
         # 1. Parse the transaction
         parsed = self._parse_swap(tx, wallet_addr)
         if not parsed:
             return
 
-        # 2. Only BUY transactions
-        if parsed['type'] != 'buy':
-            return  # Skip sells
+        tx_type = parsed['type']
+        token_address = parsed['token_address']
+        sol_amount = parsed['sol_amount']
 
-        # 3. Check transaction age (< 5 minutes)
+        # 2. Check transaction age (< 5 minutes)
         tx_timestamp = parsed['timestamp']
         now = datetime.now().timestamp()
         age_minutes = (now - tx_timestamp) / 60
 
         if age_minutes > MAX_TX_AGE_MINUTES:
-            logger.info(f"⏭️ Skipping old tx ({age_minutes:.1f}m old > {MAX_TX_AGE_MINUTES}m limit)")
+            logger.debug(f"⏭️ Skipping old tx ({age_minutes:.1f}m old)")
             return
 
-        # 4. Check buy amount (>= 1 SOL)
-        sol_amount = parsed['sol_amount']
+        # 3. Handle WATCHLIST wallets - track buys AND sells
+        if is_watchlist:
+            if tx_type == 'buy':
+                # Track position for later sell P/L calculation
+                self.watchlist_positions.record_buy(wallet_addr, token_address, sol_amount, tx_timestamp)
+
+                # Check minimum buy amount
+                if sol_amount < MIN_WATCHLIST_BUY_SOL:
+                    logger.debug(f"⏭️ Skipping small watchlist buy ({sol_amount:.4f} SOL < {MIN_WATCHLIST_BUY_SOL} SOL)")
+                    return
+
+                await self._send_watchlist_buy_alert(wallet_addr, parsed)
+
+            elif tx_type == 'sell':
+                # Get position info for P/L calculation
+                position = self.watchlist_positions.close_position(wallet_addr, token_address, sol_amount)
+                await self._send_watchlist_sell_alert(wallet_addr, parsed, position)
+
+            return
+
+        # 4. Handle QUALIFIED wallets - buys only
+        if tx_type != 'buy':
+            return  # Skip sells for qualified wallets
+
+        # Check buy amount
         if sol_amount < MIN_BUY_AMOUNT_SOL:
-            logger.info(f"⏭️ Skipping small buy ({sol_amount:.4f} SOL < {MIN_BUY_AMOUNT_SOL} SOL limit)")
+            logger.debug(f"⏭️ Skipping small buy ({sol_amount:.4f} SOL < {MIN_BUY_AMOUNT_SOL} SOL)")
             return
 
-        # 5. NEW FILTER: Check last 5 trades quality (prevent losing streak wallets)
+        # Check last 5 trades quality
         recent_quality = await self._check_last_5_trades_quality(wallet_addr)
         if not recent_quality['passed']:
-            logger.info(f"⏭️ Skipping - wallet on losing streak ({recent_quality['win_rate']*100:.0f}% win rate on last {recent_quality['closed_count']} closed trades)")
+            logger.info(f"⏭️ Skipping - wallet on losing streak ({recent_quality['win_rate']*100:.0f}%)")
             return
 
-        logger.info(f"🎯 QUALIFIED BUY: {sol_amount:.2f} SOL, {age_minutes:.1f}m old, {recent_quality['win_rate']*100:.0f}% recent win rate")
+        await self._send_qualified_alert(wallet_addr, wallet_data, parsed)
 
-        # 6. Record for smart money tracking
+    async def _send_qualified_alert(self, wallet_addr: str, wallet_data: Dict, parsed: Dict):
+        """Send alert to public channel for qualified wallet buys."""
         token_address = parsed['token_address']
+        sol_amount = parsed['sol_amount']
+        tx_timestamp = parsed['timestamp']
+
+        # Record for smart money tracking
         self.smart_money.record_buy(token_address, wallet_addr)
 
-        # 7. Get token info from DexScreener
+        # Get token info from DexScreener
         token_info = await self._get_token_info(token_address)
 
-        # 8. Get smart money count for this token
+        # Get smart money count for this token
         smart_money = self.smart_money.get_smart_money_count(token_address)
 
-        # 9. Get recent trades for this wallet
+        # Get recent trades for this wallet
         recent_trades = await self._get_recent_trades(wallet_addr)
 
-        # 10. Get SOL price
+        # Get SOL price
         sol_price = await self.price_service.get_sol_price()
 
-        # 11. Format and send alert
+        # Format alert
         trade_data = {
             'sol_amount': sol_amount,
             'timestamp': tx_timestamp,
@@ -314,8 +484,8 @@ class RealTimeBot:
             sol_price=sol_price
         )
 
-        # 12. Send to Telegram
-        logger.info(f"Sending alert for {token_info.get('symbol')} ({sol_amount:.2f} SOL)...")
+        # Send to public channel
+        logger.info(f"Sending qualified alert for {token_info.get('symbol')} ({sol_amount:.2f} SOL)...")
 
         try:
             image_url = token_info.get('image_url', '')
@@ -327,28 +497,195 @@ class RealTimeBot:
                         caption=message,
                         parse_mode=ParseMode.MARKDOWN
                     )
-                    logger.info(f"ALERT SENT (with image): {token_info.get('symbol')}")
-                except Exception as img_err:
-                    logger.warning(f"Image failed ({img_err}), sending text only...")
+                except Exception:
                     await self.bot.send_message(
                         chat_id=self.channel_id,
                         text=message,
                         parse_mode=ParseMode.MARKDOWN
                     )
-                    logger.info(f"ALERT SENT (text): {token_info.get('symbol')}")
             else:
                 await self.bot.send_message(
                     chat_id=self.channel_id,
                     text=message,
                     parse_mode=ParseMode.MARKDOWN
                 )
-                logger.info(f"ALERT SENT: {token_info.get('symbol')}")
 
-            logger.info(f"✅ ALERT: {wallet_data.get('tier')} wallet bought {token_info.get('symbol')} for {sol_amount:.2f} SOL")
+            logger.info(f"✅ QUALIFIED ALERT: {wallet_data.get('tier')} bought {token_info.get('symbol')} for {sol_amount:.2f} SOL")
 
         except Exception as e:
-            logger.error(f"❌ FAILED to send alert: {e}")
-            logger.error(f"Message was: {message[:200]}...")
+            logger.error(f"❌ FAILED to send qualified alert: {e}")
+
+    async def _send_watchlist_buy_alert(self, wallet_addr: str, parsed: Dict):
+        """Send personal DM buy alerts to users who have this wallet in their watchlist."""
+        token_address = parsed['token_address']
+        sol_amount = parsed['sol_amount']
+
+        # Get all users subscribed to this wallet
+        subscribers = self.watchlist.get_wallet_subscribers(wallet_addr)
+
+        if not subscribers:
+            return
+
+        # Get token info
+        token_info = await self._get_token_info(token_address)
+        token_symbol = token_info.get('symbol', '???')
+
+        logger.info(f"🔔 WATCHLIST BUY: {wallet_addr[:12]}... bought {sol_amount:.2f} SOL of ${token_symbol}")
+
+        # Send personalized alert to each subscriber
+        for sub in subscribers:
+            user_id = sub['user_id']
+            win_rate = sub.get('win_rate', 0)
+            added_date = sub.get('added_date', '')
+            nickname = sub.get('nickname', '')
+
+            # Calculate days since added
+            days_ago = "Unknown"
+            if added_date:
+                try:
+                    added_dt = datetime.fromisoformat(added_date.replace('Z', '+00:00'))
+                    days = (datetime.now() - added_dt).days
+                    days_ago = f"{days} day{'s' if days != 1 else ''} ago"
+                except:
+                    days_ago = added_date[:10]
+
+            # Format wallet based on user privilege
+            is_admin = (user_id == ADMIN_USER_ID)
+            if is_admin:
+                wallet_display = f"`{wallet_addr}`"
+            else:
+                wallet_display = truncate_wallet(wallet_addr)
+
+            # Build alert message
+            message = f"""🔔 **WATCHLIST BUY**
+
+💰 {wallet_display} bought **{sol_amount:.2f} SOL** of **${token_symbol}**
+
+📊 **Wallet Stats:**
+├ Win Rate: {win_rate*100:.0f}%
+└ Added: {days_ago}
+
+🪙 **Token:** ${token_symbol}
+├ Market Cap: ${token_info.get('market_cap', 0):,.0f}
+└ Liquidity: ${token_info.get('liquidity', 0):,.0f}
+
+[DexScreener](https://dexscreener.com/solana/{token_address})"""
+
+            if nickname:
+                message = message.replace("WATCHLIST BUY", f"WATCHLIST BUY ({nickname})")
+
+            try:
+                await self.bot.send_message(
+                    chat_id=user_id,
+                    text=message,
+                    parse_mode=ParseMode.MARKDOWN,
+                    disable_web_page_preview=True
+                )
+                logger.info(f"✅ Watchlist buy alert sent to user {user_id} for ${token_symbol}")
+
+            except Exception as e:
+                logger.warning(f"Failed to send watchlist alert to {user_id}: {e}")
+
+    async def _send_watchlist_sell_alert(self, wallet_addr: str, parsed: Dict, position: Optional[Dict]):
+        """Send personal DM sell alerts to users who have this wallet in their watchlist."""
+        token_address = parsed['token_address']
+        sol_amount = parsed['sol_amount']  # SOL earned from sell
+
+        # Get all users subscribed to this wallet
+        subscribers = self.watchlist.get_wallet_subscribers(wallet_addr)
+
+        if not subscribers:
+            return
+
+        # Get token info
+        token_info = await self._get_token_info(token_address)
+        token_symbol = token_info.get('symbol', '???')
+
+        # Calculate P/L
+        if position:
+            entry_sol = position['entry_sol']
+            pnl_sol = position['pnl_sol']
+            pnl_pct = position['pnl_pct']
+            first_buy_time = position['first_buy_time']
+
+            # Calculate hold time
+            hold_seconds = int(datetime.now().timestamp() - first_buy_time)
+            if hold_seconds < 3600:
+                hold_time = f"{hold_seconds // 60} minutes"
+            elif hold_seconds < 86400:
+                hold_time = f"{hold_seconds // 3600} hours"
+            else:
+                hold_time = f"{hold_seconds // 86400} days"
+
+            pnl_emoji = "📈" if pnl_sol >= 0 else "📉"
+            pnl_str = f"{pnl_sol:+.2f} SOL ({pnl_pct:+.0f}%)"
+        else:
+            # No position tracked (maybe bought before bot started)
+            entry_sol = 0
+            pnl_sol = 0
+            pnl_pct = 0
+            pnl_emoji = "📊"
+            pnl_str = "Unknown (no entry tracked)"
+            hold_time = "Unknown"
+
+        logger.info(f"📤 WATCHLIST SELL: {wallet_addr[:12]}... sold {sol_amount:.2f} SOL of ${token_symbol} ({pnl_str})")
+
+        # Send personalized alert to each subscriber
+        for sub in subscribers:
+            user_id = sub['user_id']
+            win_rate = sub.get('win_rate', 0)
+            nickname = sub.get('nickname', '')
+
+            # Format wallet based on user privilege
+            is_admin = (user_id == ADMIN_USER_ID)
+            if is_admin:
+                wallet_display = f"`{wallet_addr}`"
+            else:
+                wallet_display = truncate_wallet(wallet_addr)
+
+            # Build alert message
+            if position:
+                message = f"""📤 **WATCHLIST SELL**
+
+💰 {wallet_display} sold **${token_symbol}**
+
+📊 **Trade Result:**
+├ Entry: {entry_sol:.2f} SOL
+├ Exit: {sol_amount:.2f} SOL
+├ {pnl_emoji} P/L: {pnl_str}
+└ Hold Time: {hold_time}
+
+📈 **Wallet Stats:**
+└ Win Rate: {win_rate*100:.0f}%
+
+[DexScreener](https://dexscreener.com/solana/{token_address})"""
+            else:
+                message = f"""📤 **WATCHLIST SELL**
+
+💰 {wallet_display} sold **{sol_amount:.2f} SOL** of **${token_symbol}**
+
+📊 **Trade Result:**
+└ P/L: Entry not tracked (bought before monitoring)
+
+📈 **Wallet Stats:**
+└ Win Rate: {win_rate*100:.0f}%
+
+[DexScreener](https://dexscreener.com/solana/{token_address})"""
+
+            if nickname:
+                message = message.replace("WATCHLIST SELL", f"WATCHLIST SELL ({nickname})")
+
+            try:
+                await self.bot.send_message(
+                    chat_id=user_id,
+                    text=message,
+                    parse_mode=ParseMode.MARKDOWN,
+                    disable_web_page_preview=True
+                )
+                logger.info(f"✅ Watchlist sell alert sent to user {user_id} for ${token_symbol}")
+
+            except Exception as e:
+                logger.warning(f"Failed to send watchlist sell alert to {user_id}: {e}")
 
     def _parse_swap(self, tx: Dict, wallet_addr: str) -> Optional[Dict]:
         """Parse a swap transaction."""

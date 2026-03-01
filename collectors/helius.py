@@ -2,6 +2,10 @@
 Helius API Integration
 Transaction history fetching and websocket monitoring
 With API key rotation for 4x capacity (400 req/sec)
+
+KEY POOLS:
+- FREE keys: For background jobs (pipeline, insider detection, cluster analysis)
+- PREMIUM key: For real-time monitoring only (60-sec polling, buy alerts)
 """
 import asyncio
 import json
@@ -11,7 +15,14 @@ from typing import List, Dict, Any, Optional, Callable
 import logging
 import websockets
 
-from config.settings import HELIUS_API_KEY, HELIUS_API_KEYS, HELIUS_RPC_URL, HELIUS_WS_URL
+from config.settings import (
+    HELIUS_API_KEY,
+    HELIUS_API_KEYS,
+    HELIUS_FREE_KEYS,
+    HELIUS_PREMIUM_KEY,
+    HELIUS_RPC_URL,
+    HELIUS_WS_URL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +30,29 @@ logger = logging.getLogger(__name__)
 class HeliusRotator:
     """
     Rotate between multiple Helius API keys to maximize throughput.
-    4 keys = 400 req/sec = 24,000 req/min capacity.
+
+    Supports two modes:
+    - FREE mode: Rotates between free keys (for background jobs)
+    - PREMIUM mode: Uses single premium key (for real-time monitoring)
     """
 
-    def __init__(self, api_keys: List[str] = None):
-        self.api_keys = api_keys or HELIUS_API_KEYS
+    def __init__(self, api_keys: List[str] = None, use_premium: bool = False):
+        """
+        Initialize the rotator.
+
+        Args:
+            api_keys: List of API keys to rotate through
+            use_premium: If True, use only the premium key (no rotation)
+        """
+        self.use_premium = use_premium
+
+        if use_premium:
+            self.api_keys = [HELIUS_PREMIUM_KEY]
+            logger.info("HeliusRotator initialized with PREMIUM key (real-time mode)")
+        else:
+            self.api_keys = api_keys or HELIUS_FREE_KEYS
+            logger.info(f"HeliusRotator initialized with {len(self.api_keys)} FREE keys")
+
         self.current_index = 0
         self.request_counts: Dict[str, int] = {key: 0 for key in self.api_keys}
         self.reset_times: Dict[str, float] = {key: time.time() for key in self.api_keys}
@@ -93,8 +122,12 @@ class HeliusRotator:
         }
 
 
-# Global rotator instance
-helius_rotator = HeliusRotator()
+# Global rotator instances
+# FREE rotator - for background jobs (pipeline, insider detection, cluster analysis)
+helius_rotator = HeliusRotator(use_premium=False)
+
+# PREMIUM rotator - for real-time monitoring only
+helius_premium_rotator = HeliusRotator(use_premium=True)
 
 
 class HeliusClient:

@@ -16,13 +16,14 @@ from telegram.constants import ParseMode
 
 from config.settings import (
     HELIUS_API_KEY,
+    HELIUS_PREMIUM_KEY,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHANNEL_ID,
     DATABASE_PATH,
 )
 from database import get_connection
 from bot.alert_formatter import AlertFormatter
-from collectors.helius import helius_rotator
+from collectors.helius import helius_premium_rotator  # Use PREMIUM key for real-time
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +118,7 @@ class RealTimeBot:
     """
 
     def __init__(self):
-        self.rotator = helius_rotator  # Use API key rotation
+        self.rotator = helius_premium_rotator  # Use PREMIUM key for real-time monitoring
         self.base_url = f"https://api.helius.xyz/v0"
         self.bot = Bot(token=TELEGRAM_BOT_TOKEN)
         self.channel_id = TELEGRAM_CHANNEL_ID

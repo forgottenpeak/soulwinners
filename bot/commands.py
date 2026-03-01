@@ -494,39 +494,69 @@ Welcome! You have full access to wallet tracking commands.
         if not wallet:
             await update.message.reply_text(
                 "Could not find a valid Solana wallet address in that message.\n\n"
-                "Make sure the alert contains a wallet address."
+                "Make sure the alert contains a wallet address (not token address).\n"
+                "Token addresses ending in 'pump' are filtered out."
             )
             return
 
-        # Check if already in watchlist
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id FROM user_watchlists WHERE user_id = ? AND wallet_address = ?",
-            (user_id, wallet)
-        )
-        existing = cursor.fetchone()
+        # Log what we found for debugging
+        logger.info(f"Extracted wallet: {wallet}")
 
-        if existing:
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            # Ensure table exists
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_watchlists (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    wallet_address TEXT NOT NULL,
+                    added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    win_rate REAL DEFAULT 0,
+                    roi REAL DEFAULT 0,
+                    total_trades INTEGER DEFAULT 0,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    notes TEXT,
+                    UNIQUE(user_id, wallet_address)
+                )
+            """)
+            conn.commit()
+
+            # Check if already in watchlist
+            cursor.execute(
+                "SELECT id FROM user_watchlists WHERE user_id = ? AND wallet_address = ?",
+                (user_id, wallet)
+            )
+            existing = cursor.fetchone()
+
+            if existing:
+                conn.close()
+                await update.message.reply_text(
+                    f"This wallet is already in your watchlist.\n\n"
+                    f"Wallet: {format_wallet_for_user(wallet, self._is_admin(user_id))}"
+                )
+                return
+
+            # Analyze wallet
+            await update.message.reply_text("Analyzing wallet...")
+
+            stats = await self._analyze_wallet_stats(wallet)
+
+            # Add to watchlist
+            cursor.execute("""
+                INSERT INTO user_watchlists (user_id, wallet_address, win_rate, roi, total_trades)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user_id, wallet, stats['win_rate'], stats['roi'], stats['trades']))
+            conn.commit()
             conn.close()
-            await update.message.reply_text(
-                f"This wallet is already in your watchlist.\n\n"
-                f"Wallet: {format_wallet_for_user(wallet, self._is_admin(user_id))}"
-            )
+
+            logger.info(f"Successfully added wallet {wallet[:12]}... to watchlist for user {user_id}")
+
+        except Exception as e:
+            logger.error(f"Database error adding wallet: {e}")
+            await update.message.reply_text(f"Database error: {e}")
             return
-
-        # Analyze wallet
-        await update.message.reply_text("Analyzing wallet...")
-
-        stats = await self._analyze_wallet_stats(wallet)
-
-        # Add to watchlist
-        cursor.execute("""
-            INSERT INTO user_watchlists (user_id, wallet_address, win_rate, roi, total_trades)
-            VALUES (?, ?, ?, ?, ?)
-        """, (user_id, wallet, stats['win_rate'], stats['roi'], stats['trades']))
-        conn.commit()
-        conn.close()
 
         # Format response based on user level
         wallet_display = format_wallet_for_user(wallet, self._is_admin(user_id))
@@ -559,16 +589,42 @@ Use /watchlist to see all your watched wallets."""
 
         logger.info(f"Watchlist command from user {user_id}")
 
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT wallet_address, win_rate, roi, total_trades, added_date
-            FROM user_watchlists
-            WHERE user_id = ?
-            ORDER BY added_date DESC
-        """, (user_id,))
-        wallets = cursor.fetchall()
-        conn.close()
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            # Ensure table exists
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_watchlists (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    wallet_address TEXT NOT NULL,
+                    added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    win_rate REAL DEFAULT 0,
+                    roi REAL DEFAULT 0,
+                    total_trades INTEGER DEFAULT 0,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    notes TEXT,
+                    UNIQUE(user_id, wallet_address)
+                )
+            """)
+            conn.commit()
+
+            cursor.execute("""
+                SELECT wallet_address, win_rate, roi, total_trades, added_date
+                FROM user_watchlists
+                WHERE user_id = ?
+                ORDER BY added_date DESC
+            """, (user_id,))
+            wallets = cursor.fetchall()
+            conn.close()
+
+            logger.info(f"Found {len(wallets)} wallets for user {user_id}")
+
+        except Exception as e:
+            logger.error(f"Database error in watchlist: {e}")
+            await update.message.reply_text(f"Database error: {e}")
+            return
 
         if not wallets:
             await update.message.reply_text(
@@ -588,8 +644,17 @@ Use /watchlist to see all your watched wallets."""
         for i, (wallet, win_rate, roi, trades, added) in enumerate(wallets, 1):
             wallet_display = format_wallet_for_user(wallet, is_admin)
 
-            # Win rate emoji
-            wr_emoji = "" if win_rate >= 0.6 else "" if win_rate >= 0.4 else ""
+            # Win rate emoji - ensure values are not None
+            win_rate = win_rate or 0
+            roi = roi or 0
+            trades = trades or 0
+
+            if win_rate >= 0.6:
+                wr_emoji = "🟢"
+            elif win_rate >= 0.4:
+                wr_emoji = "🟡"
+            else:
+                wr_emoji = "🔴"
 
             message += f"**{i}.** {wallet_display}\n"
             message += f"   {wr_emoji} WR: {win_rate*100:.0f}% | ROI: {roi:+.0f}% | Trades: {trades}\n"

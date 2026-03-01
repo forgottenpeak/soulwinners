@@ -233,6 +233,59 @@ def format_time_ago(timestamp: datetime) -> str:
         return f"{int(diff/604800)}w ago"
 
 
+def extract_wallet_from_bot_alert(text: str) -> Optional[str]:
+    """
+    Extract wallet address from THIS BOT's own alert messages.
+
+    Bot alerts have a specific format:
+    - "👛 Wallet: `ADDRESS`" (qualified wallet alerts)
+    - "💰 ADDRESS bought" or "💰 `ADDRESS` bought" (watchlist alerts)
+
+    This is more reliable than generic extraction since we control the format.
+    """
+    if not text:
+        return None
+
+    # Pattern 1: "👛 Wallet: `ADDRESS`" (bot's qualified alerts)
+    wallet_pattern = r'👛\s*Wallet:\s*`([1-9A-HJ-NP-Za-km-z]{32,44})`'
+    match = re.search(wallet_pattern, text)
+    if match:
+        wallet = match.group(1)
+        if is_valid_solana_address(wallet) and not is_likely_token_address(wallet):
+            logger.info(f"Found wallet from bot alert (👛 format): {wallet[:12]}...")
+            return wallet
+
+    # Pattern 2: "💰 `ADDRESS` bought" (watchlist buy alerts)
+    watchlist_pattern = r'💰\s*`([1-9A-HJ-NP-Za-km-z]{32,44})`\s*bought'
+    match = re.search(watchlist_pattern, text)
+    if match:
+        wallet = match.group(1)
+        if is_valid_solana_address(wallet) and not is_likely_token_address(wallet):
+            logger.info(f"Found wallet from bot alert (💰 format): {wallet[:12]}...")
+            return wallet
+
+    # Pattern 3: "💰 ADDRESS bought" without backticks (truncated display)
+    # This won't work for truncated addresses, but try full addresses
+    watchlist_pattern2 = r'💰\s*([1-9A-HJ-NP-Za-km-z]{32,44})\s*bought'
+    match = re.search(watchlist_pattern2, text)
+    if match:
+        wallet = match.group(1)
+        if is_valid_solana_address(wallet) and not is_likely_token_address(wallet):
+            logger.info(f"Found wallet from bot alert (💰 no-tick format): {wallet[:12]}...")
+            return wallet
+
+    # Pattern 4: "📤 `ADDRESS` sold" (watchlist sell alerts)
+    sell_pattern = r'💰\s*`([1-9A-HJ-NP-Za-km-z]{32,44})`\s*sold'
+    match = re.search(sell_pattern, text)
+    if match:
+        wallet = match.group(1)
+        if is_valid_solana_address(wallet) and not is_likely_token_address(wallet):
+            logger.info(f"Found wallet from bot alert (sell format): {wallet[:12]}...")
+            return wallet
+
+    return None
+
+
 # Test the extraction
 if __name__ == "__main__":
     test_texts = [

@@ -26,6 +26,7 @@ from database import get_connection
 from collectors.helius import helius_rotator
 from bot.utils import (
     extract_wallet_from_text,
+    extract_wallet_from_bot_alert,
     truncate_wallet,
     format_wallet_for_user,
     format_stats,
@@ -488,8 +489,23 @@ Welcome! You have full access to wallet tracking commands.
             )
             return
 
-        # Extract wallet address
-        wallet = extract_wallet_from_text(text)
+        # Check if this is a reply to THIS BOT's own message
+        bot_id = context.bot.id
+        is_bot_message = reply_msg.from_user and reply_msg.from_user.id == bot_id
+
+        if is_bot_message:
+            # Use dedicated parser for bot's own alert format (more reliable)
+            wallet = extract_wallet_from_bot_alert(text)
+            logger.info(f"Parsing bot's own alert, found: {wallet[:12] if wallet else 'None'}...")
+
+            if not wallet:
+                # Fallback to generic extraction
+                wallet = extract_wallet_from_text(text)
+                logger.info(f"Fallback extraction: {wallet[:12] if wallet else 'None'}...")
+        else:
+            # External alert - use generic extraction
+            wallet = extract_wallet_from_text(text)
+            logger.info(f"Parsing external alert, found: {wallet[:12] if wallet else 'None'}...")
 
         if not wallet:
             await update.message.reply_text(
@@ -500,7 +516,7 @@ Welcome! You have full access to wallet tracking commands.
             return
 
         # Log what we found for debugging
-        logger.info(f"Extracted wallet: {wallet}")
+        logger.info(f"Final extracted wallet: {wallet}")
 
         try:
             conn = get_connection()

@@ -31,11 +31,12 @@ class AlertFormatter:
     ) -> str:
         """
         Format a buy alert with token metrics.
-        NO wallet address shown.
+        Includes wallet address for /add command.
         """
         tier = wallet.get('tier', 'Unknown')
         tier_emoji = '🔥' if tier == 'Elite' else '🟢' if tier == 'High-Quality' else '🟡'
         strategy = wallet.get('cluster_name', 'Unknown Strategy')
+        wallet_address = wallet.get('wallet_address', '')
 
         # Calculate time ago
         tx_timestamp = trade.get('timestamp', 0)
@@ -67,9 +68,10 @@ class AlertFormatter:
         high_count = smart_money.get('high', 0)
         total_smart = smart_money.get('total', elite_count + high_count)
 
-        # Build message
+        # Build message - include wallet address for /add command
         message = f"""{tier_emoji} {tier.upper()} WALLET BUY {tier_emoji}
 ⏰ Bought {time_ago}
+👛 Wallet: `{wallet_address}`
 
 🪙 Token: {token_symbol} ({token_name})
 📍 CA: `{token_address}`

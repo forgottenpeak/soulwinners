@@ -99,6 +99,9 @@ class CommandBot:
         await self.application.start()
         await self.application.updater.start_polling(drop_pending_updates=True)
 
+        # Set bot menu commands
+        await self._set_bot_commands()
+
         logger.info("Command bot started")
 
     async def stop(self):
@@ -107,6 +110,42 @@ class CommandBot:
             await self.application.updater.stop()
             await self.application.stop()
             await self.application.shutdown()
+
+    async def _set_bot_commands(self):
+        """Set bot menu commands visible in Telegram."""
+        from telegram import BotCommand
+
+        commands = [
+            # Main commands
+            BotCommand("start", "Start the bot"),
+            BotCommand("help", "Show all commands"),
+            BotCommand("buttons", "Quick action buttons"),
+
+            # Watchlist
+            BotCommand("add", "Add wallet to watchlist"),
+            BotCommand("watchlist", "View your watchlist"),
+            BotCommand("remove", "Remove wallet from watchlist"),
+            BotCommand("label", "Nickname a wallet"),
+            BotCommand("summary", "Daily P&L summary"),
+            BotCommand("export", "Export watchlist to CSV"),
+
+            # Analysis
+            BotCommand("pool", "View wallet leaderboard"),
+            BotCommand("leaderboard", "Top performers by ROI"),
+            BotCommand("stats", "Pool statistics"),
+            BotCommand("insiders", "Insider pool stats"),
+            BotCommand("clusters", "Wallet clusters"),
+
+            # Premium
+            BotCommand("premium", "Premium features info"),
+            BotCommand("settings", "Bot settings"),
+        ]
+
+        try:
+            await self.application.bot.set_my_commands(commands)
+            logger.info(f"Set {len(commands)} bot menu commands")
+        except Exception as e:
+            logger.error(f"Failed to set bot commands: {e}")
 
     def _is_admin(self, user_id: int) -> bool:
         """Check if user is admin."""
@@ -747,38 +786,52 @@ Use /watchlist to see all your watched wallets."""
             )
             return
 
-        # Get user's wallets
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT id, wallet_address FROM user_watchlists
-            WHERE user_id = ?
-            ORDER BY added_date DESC
-        """, (user_id,))
-        wallets = cursor.fetchall()
+        try:
+            # Get user's wallets
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, wallet_address FROM user_watchlists
+                WHERE user_id = ?
+                ORDER BY added_date DESC
+            """, (user_id,))
+            wallets = cursor.fetchall()
 
-        if index > len(wallets):
+            logger.info(f"User {user_id} has {len(wallets)} wallets, removing index {index}")
+
+            if len(wallets) == 0:
+                conn.close()
+                await update.message.reply_text("Your watchlist is empty.")
+                return
+
+            if index < 1 or index > len(wallets):
+                conn.close()
+                await update.message.reply_text(
+                    f"Invalid index {index}. You have {len(wallets)} wallet(s).\n"
+                    f"Use /watchlist to see the numbered list."
+                )
+                return
+
+            # Get the wallet at that index (1-based to 0-based)
+            wallet_id, wallet_addr = wallets[index - 1]
+            logger.info(f"Removing wallet id={wallet_id}: {wallet_addr[:12]}...")
+
+            # Delete it
+            cursor.execute("DELETE FROM user_watchlists WHERE id = ?", (wallet_id,))
+            conn.commit()
             conn.close()
+
+            wallet_display = format_wallet_for_user(wallet_addr, self._is_admin(user_id))
+
             await update.message.reply_text(
-                f"Invalid index. You have {len(wallets)} wallets in your watchlist."
+                f"✅ Removed wallet #{index} from watchlist:\n{wallet_display}",
+                parse_mode=ParseMode.MARKDOWN
             )
-            return
+            logger.info(f"User {user_id} removed wallet {wallet_addr[:12]}... from watchlist")
 
-        # Get the wallet at that index
-        wallet_id, wallet_addr = wallets[index - 1]
-
-        # Delete it
-        cursor.execute("DELETE FROM user_watchlists WHERE id = ?", (wallet_id,))
-        conn.commit()
-        conn.close()
-
-        wallet_display = format_wallet_for_user(wallet_addr, self._is_admin(user_id))
-
-        await update.message.reply_text(
-            f"✅ Removed from watchlist:\n{wallet_display}",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        logger.info(f"User {user_id} removed wallet {wallet_addr[:12]}... from watchlist")
+        except Exception as e:
+            logger.error(f"Remove wallet error: {e}")
+            await update.message.reply_text(f"Error removing wallet: {e}")
 
     async def cmd_label(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Label a watchlist wallet with a nickname."""

@@ -37,6 +37,32 @@ MIN_LAST_5_WIN_RATE = 0.60     # 60% minimum win rate on last 5 closed trades
 # Admin user ID - sees full addresses
 ADMIN_USER_ID = 1153491543
 
+# Alert cache for /add command lookup
+# Stores message_id -> full wallet address
+ALERT_WALLET_CACHE: Dict[int, str] = {}
+ALERT_CACHE_MAX_SIZE = 500  # Keep last 500 alerts
+
+
+def cache_alert_wallet(message_id: int, wallet_address: str):
+    """Store mapping of message_id to full wallet address for /add command."""
+    global ALERT_WALLET_CACHE
+
+    ALERT_WALLET_CACHE[message_id] = wallet_address
+
+    # Clean up old entries if cache too large
+    if len(ALERT_WALLET_CACHE) > ALERT_CACHE_MAX_SIZE:
+        # Remove oldest entries (first 100)
+        keys_to_remove = list(ALERT_WALLET_CACHE.keys())[:100]
+        for key in keys_to_remove:
+            del ALERT_WALLET_CACHE[key]
+
+    logger.debug(f"Cached alert {message_id} -> {wallet_address[:12]}...")
+
+
+def get_wallet_from_alert_cache(message_id: int) -> Optional[str]:
+    """Look up full wallet address from alert cache by message_id."""
+    return ALERT_WALLET_CACHE.get(message_id)
+
 
 class WatchlistPositionTracker:
     """Track token positions for watchlist wallets to calculate sell P/L."""
@@ -489,26 +515,32 @@ class RealTimeBot:
 
         try:
             image_url = token_info.get('image_url', '')
+            sent_message = None
+
             if image_url:
                 try:
-                    await self.bot.send_photo(
+                    sent_message = await self.bot.send_photo(
                         chat_id=self.channel_id,
                         photo=image_url,
                         caption=message,
                         parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception:
-                    await self.bot.send_message(
+                    sent_message = await self.bot.send_message(
                         chat_id=self.channel_id,
                         text=message,
                         parse_mode=ParseMode.MARKDOWN
                     )
             else:
-                await self.bot.send_message(
+                sent_message = await self.bot.send_message(
                     chat_id=self.channel_id,
                     text=message,
                     parse_mode=ParseMode.MARKDOWN
                 )
+
+            # Cache message_id -> wallet for /add command lookup
+            if sent_message:
+                cache_alert_wallet(sent_message.message_id, wallet_addr)
 
             logger.info(f"✅ QUALIFIED ALERT: {wallet_data.get('tier')} bought {token_info.get('symbol')} for {sol_amount:.2f} SOL")
 

@@ -7,6 +7,7 @@ import asyncio
 import logging
 import subprocess
 import os
+from io import BytesIO
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
@@ -33,6 +34,7 @@ from bot.utils import (
     parse_remove_index,
     is_valid_solana_address,
 )
+from bot.realtime_bot import get_wallet_from_alert_cache
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +82,12 @@ class CommandBot:
         self.application.add_handler(CommandHandler("watchlist", self.cmd_watchlist))
         self.application.add_handler(CommandHandler("remove_wallet", self.cmd_remove_wallet))
         self.application.add_handler(CommandHandler("remove", self.cmd_remove_wallet))  # Alias
+        self.application.add_handler(CommandHandler("removewallet", self.cmd_remove_wallet))  # No underscore alias
+        self.application.add_handler(CommandHandler("label", self.cmd_label))
+        self.application.add_handler(CommandHandler("summary", self.cmd_summary))
+        self.application.add_handler(CommandHandler("premium", self.cmd_premium))
+        self.application.add_handler(CommandHandler("buttons", self.cmd_buttons))
+        self.application.add_handler(CommandHandler("export", self.cmd_export))
 
         # Register callback handler for inline buttons
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
@@ -493,15 +501,24 @@ Welcome! You have full access to wallet tracking commands.
         bot_id = context.bot.id
         is_bot_message = reply_msg.from_user and reply_msg.from_user.id == bot_id
 
-        if is_bot_message:
-            # Use dedicated parser for bot's own alert format (more reliable)
-            wallet = extract_wallet_from_bot_alert(text)
-            logger.info(f"Parsing bot's own alert, found: {wallet[:12] if wallet else 'None'}...")
+        wallet = None
 
-            if not wallet:
-                # Fallback to generic extraction
-                wallet = extract_wallet_from_text(text)
-                logger.info(f"Fallback extraction: {wallet[:12] if wallet else 'None'}...")
+        if is_bot_message:
+            # FIRST: Try to look up full wallet from alert cache (most reliable)
+            message_id = reply_msg.message_id
+            wallet = get_wallet_from_alert_cache(message_id)
+
+            if wallet:
+                logger.info(f"Found wallet from cache: {wallet[:12]}...")
+            else:
+                # FALLBACK: Try to parse from bot's alert format
+                wallet = extract_wallet_from_bot_alert(text)
+                logger.info(f"Parsing bot's own alert, found: {wallet[:12] if wallet else 'None'}...")
+
+                if not wallet:
+                    # LAST RESORT: Generic extraction
+                    wallet = extract_wallet_from_text(text)
+                    logger.info(f"Fallback extraction: {wallet[:12] if wallet else 'None'}...")
         else:
             # External alert - use generic extraction
             wallet = extract_wallet_from_text(text)
@@ -758,10 +775,361 @@ Use /watchlist to see all your watched wallets."""
         wallet_display = format_wallet_for_user(wallet_addr, self._is_admin(user_id))
 
         await update.message.reply_text(
-            f"Removed from watchlist:\n{wallet_display}",
+            f"✅ Removed from watchlist:\n{wallet_display}",
             parse_mode=ParseMode.MARKDOWN
         )
         logger.info(f"User {user_id} removed wallet {wallet_addr[:12]}... from watchlist")
+
+    async def cmd_label(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Label a watchlist wallet with a nickname."""
+        if not self._is_private(update):
+            return
+
+        user_id = update.effective_user.id
+
+        if not self._is_premium(user_id):
+            await update.message.reply_text("This feature is for premium users only.")
+            return
+
+        logger.info(f"Label command from user {user_id}")
+
+        # Parse: /label [number] [nickname]
+        text = update.message.text or ""
+        parts = text.split(maxsplit=2)
+
+        if len(parts) < 3:
+            await update.message.reply_text(
+                "**Usage:** /label [number] [nickname]\n\n"
+                "Example: /label 1 Whale Trader\n"
+                "Example: /label 2 Dev Wallet\n\n"
+                "Use /watchlist to see numbered list.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        try:
+            index = int(parts[1])
+            nickname = parts[2].strip()
+        except ValueError:
+            await update.message.reply_text("Invalid number. Use /label [number] [nickname]")
+            return
+
+        if len(nickname) > 50:
+            await update.message.reply_text("Nickname too long. Max 50 characters.")
+            return
+
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            # Get user's wallets
+            cursor.execute("""
+                SELECT id, wallet_address FROM user_watchlists
+                WHERE user_id = ?
+                ORDER BY added_date DESC
+            """, (user_id,))
+            wallets = cursor.fetchall()
+
+            if index < 1 or index > len(wallets):
+                conn.close()
+                await update.message.reply_text(
+                    f"Invalid index. You have {len(wallets)} wallets."
+                )
+                return
+
+            wallet_id, wallet_addr = wallets[index - 1]
+
+            # Update nickname (stored in notes column)
+            cursor.execute(
+                "UPDATE user_watchlists SET notes = ? WHERE id = ?",
+                (nickname, wallet_id)
+            )
+            conn.commit()
+            conn.close()
+
+            wallet_display = truncate_wallet(wallet_addr)
+            await update.message.reply_text(
+                f"✅ Labeled wallet #{index}:\n"
+                f"{wallet_display} → **{nickname}**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            logger.info(f"User {user_id} labeled wallet {wallet_addr[:12]}... as '{nickname}'")
+
+        except Exception as e:
+            logger.error(f"Label command error: {e}")
+            await update.message.reply_text(f"Error: {e}")
+
+    async def cmd_summary(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show daily P&L summary for watchlist wallets."""
+        if not self._is_private(update):
+            return
+
+        user_id = update.effective_user.id
+
+        if not self._is_premium(user_id):
+            await update.message.reply_text("This feature is for premium users only.")
+            return
+
+        logger.info(f"Summary command from user {user_id}")
+
+        await update.message.reply_text("📊 Calculating daily P&L...")
+
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            # Get user's watchlist wallets
+            cursor.execute("""
+                SELECT wallet_address, notes, win_rate, roi
+                FROM user_watchlists
+                WHERE user_id = ?
+            """, (user_id,))
+            wallets = cursor.fetchall()
+            conn.close()
+
+            if not wallets:
+                await update.message.reply_text(
+                    "No wallets in your watchlist.\n"
+                    "Use /add to add wallets."
+                )
+                return
+
+            # Analyze each wallet's 24h activity
+            total_pnl_sol = 0
+            total_trades = 0
+            wallet_summaries = []
+
+            for wallet_addr, nickname, win_rate, roi in wallets:
+                pnl = await self._get_24h_pnl(wallet_addr)
+
+                total_pnl_sol += pnl['pnl_sol']
+                total_trades += pnl['trades']
+
+                name = nickname if nickname else truncate_wallet(wallet_addr)
+                pnl_emoji = "🟢" if pnl['pnl_sol'] >= 0 else "🔴"
+
+                wallet_summaries.append({
+                    'name': name,
+                    'pnl_sol': pnl['pnl_sol'],
+                    'trades': pnl['trades'],
+                    'emoji': pnl_emoji,
+                })
+
+            # Sort by P&L descending
+            wallet_summaries.sort(key=lambda x: x['pnl_sol'], reverse=True)
+
+            # Build message
+            total_emoji = "📈" if total_pnl_sol >= 0 else "📉"
+
+            message = f"""📊 **DAILY P&L SUMMARY**
+
+{total_emoji} **Total P&L:** {total_pnl_sol:+.2f} SOL
+📈 **Trades Today:** {total_trades}
+
+**By Wallet:**
+"""
+            for w in wallet_summaries[:10]:  # Top 10
+                message += f"{w['emoji']} {w['name']}: {w['pnl_sol']:+.2f} SOL ({w['trades']} trades)\n"
+
+            message += "\n_Based on last 24 hours of activity_"
+
+            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+
+        except Exception as e:
+            logger.error(f"Summary command error: {e}")
+            await update.message.reply_text(f"Error calculating summary: {e}")
+
+    async def _get_24h_pnl(self, wallet_addr: str) -> Dict:
+        """Get 24h P&L for a wallet."""
+        result = {'pnl_sol': 0.0, 'trades': 0}
+
+        try:
+            api_key = await self.rotator.get_key()
+            url = f"{self.helius_url}/addresses/{wallet_addr}/transactions?api-key={api_key}&limit=50"
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=30) as response:
+                    if response.status != 200:
+                        return result
+                    txs = await response.json()
+
+            now = datetime.now().timestamp()
+            day_ago = now - 86400
+
+            skip_tokens = {
+                'So11111111111111111111111111111111111111112',
+                'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+                'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+            }
+
+            # Track positions
+            positions = {}
+
+            for tx in txs:
+                tx_time = tx.get('timestamp', 0)
+                if tx_time < day_ago:
+                    continue
+
+                token_transfers = tx.get('tokenTransfers', [])
+                native_transfers = tx.get('nativeTransfers', [])
+
+                for transfer in token_transfers:
+                    mint = transfer.get('mint', '')
+                    if mint in skip_tokens:
+                        continue
+
+                    # Calculate SOL amount
+                    sol_amount = 0
+                    for nt in native_transfers:
+                        if nt.get('fromUserAccount') == wallet_addr:
+                            sol_amount += abs(nt.get('amount', 0)) / 1e9
+                        elif nt.get('toUserAccount') == wallet_addr:
+                            sol_amount -= abs(nt.get('amount', 0)) / 1e9
+
+                    if mint not in positions:
+                        positions[mint] = {'spent': 0, 'earned': 0}
+
+                    if transfer.get('toUserAccount') == wallet_addr:
+                        positions[mint]['spent'] += abs(sol_amount)
+                        result['trades'] += 1
+                    elif transfer.get('fromUserAccount') == wallet_addr:
+                        positions[mint]['earned'] += abs(sol_amount)
+
+            # Calculate P&L
+            for pos in positions.values():
+                result['pnl_sol'] += pos['earned'] - pos['spent']
+
+        except Exception as e:
+            logger.debug(f"24h P&L error for {wallet_addr[:12]}...: {e}")
+
+        return result
+
+    async def cmd_premium(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show premium features info."""
+        if not self._is_private(update):
+            return
+
+        logger.info(f"Premium command from user {update.effective_user.id}")
+
+        message = """💎 **SOULWINNERS PREMIUM**
+
+**Free Features:**
+• View public buy alerts
+• Browse leaderboard
+
+**Premium Features:**
+• 👛 Personal watchlist (unlimited wallets)
+• 🔔 Private DM alerts for your wallets
+• 📊 Daily P&L summaries
+• 🏷️ Label wallets with nicknames
+• 📤 Export watchlist to CSV
+• 🎯 Insider pool access
+• 🔗 Cluster detection
+
+**How to Get Premium:**
+Contact @YourAdminUsername to upgrade.
+
+_Current status: {status}_"""
+
+        user_id = update.effective_user.id
+        if self._is_admin(user_id):
+            status = "👑 Admin (Full Access)"
+        elif self._is_premium(user_id):
+            status = "💎 Premium"
+        else:
+            status = "🆓 Free"
+
+        await update.message.reply_text(
+            message.format(status=status),
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+    async def cmd_buttons(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show quick action buttons."""
+        if not self._is_private(update):
+            return
+
+        logger.info(f"Buttons command from user {update.effective_user.id}")
+
+        keyboard = [
+            [
+                InlineKeyboardButton("📊 Watchlist", callback_data="btn_watchlist"),
+                InlineKeyboardButton("📈 Summary", callback_data="btn_summary"),
+            ],
+            [
+                InlineKeyboardButton("🏆 Leaderboard", callback_data="btn_leaderboard"),
+                InlineKeyboardButton("📊 Pool Stats", callback_data="btn_stats"),
+            ],
+            [
+                InlineKeyboardButton("🎯 Insiders", callback_data="btn_insiders"),
+                InlineKeyboardButton("🔗 Clusters", callback_data="btn_clusters"),
+            ],
+            [
+                InlineKeyboardButton("⚙️ Settings", callback_data="btn_settings"),
+                InlineKeyboardButton("❓ Help", callback_data="btn_help"),
+            ],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            "🎮 **Quick Actions**\n\nTap a button:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+
+    async def cmd_export(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Export watchlist to CSV format."""
+        if not self._is_private(update):
+            return
+
+        user_id = update.effective_user.id
+
+        if not self._is_premium(user_id):
+            await update.message.reply_text("This feature is for premium users only.")
+            return
+
+        logger.info(f"Export command from user {user_id}")
+
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT wallet_address, notes, win_rate, roi, total_trades, added_date
+                FROM user_watchlists
+                WHERE user_id = ?
+                ORDER BY added_date DESC
+            """, (user_id,))
+            wallets = cursor.fetchall()
+            conn.close()
+
+            if not wallets:
+                await update.message.reply_text("No wallets to export.")
+                return
+
+            # Build CSV
+            csv_lines = ["wallet_address,nickname,win_rate,roi,trades,added_date"]
+            for w in wallets:
+                addr, nick, wr, roi, trades, added = w
+                nick = nick or ""
+                csv_lines.append(f"{addr},{nick},{wr or 0:.2f},{roi or 0:.0f},{trades or 0},{added or ''}")
+
+            csv_content = "\n".join(csv_lines)
+
+            # Send as document
+            csv_file = BytesIO(csv_content.encode('utf-8'))
+            csv_file.name = "watchlist_export.csv"
+
+            await update.message.reply_document(
+                document=csv_file,
+                filename="watchlist_export.csv",
+                caption=f"📤 Exported {len(wallets)} wallets"
+            )
+            logger.info(f"User {user_id} exported {len(wallets)} wallets")
+
+        except Exception as e:
+            logger.error(f"Export error: {e}")
+            await update.message.reply_text(f"Export failed: {e}")
 
     async def _analyze_wallet_stats(self, wallet: str) -> Dict:
         """Analyze a wallet and return stats (win rate, ROI, trades)."""
@@ -988,27 +1356,36 @@ Buy alerts posted to channel when:
 
 **📱 COMMANDS**
 /pool - BES leaderboard with live balances
-/wallets - Full addresses with Solscan/Birdeye links
+/wallets - Full addresses with links
 /leaderboard - Top 10 by ROI
 /stats - Pool statistics
+/buttons - Quick action buttons
+/help - This guide
+
+**🎯 ANALYSIS**
 /insiders - Insider pool statistics
 /clusters - Detected wallet clusters
 /early_birds - Fresh launch snipers
-/trader - OpenClaw auto-trader status
-/settings - Control panel (alerts, filters, cron)
-/cron - Cron job status & control
-/logs - View system logs
-/restart - Restart components
-/help - This guide
 
 **👁️ WATCHLIST**
-/add - Reply to forwarded alert to add wallet
-/watchlist - View your watched wallets + stats
+/add - Reply to alert to add wallet
+/watchlist - View your watched wallets
 /remove [n] - Remove wallet by number
+/label [n] [name] - Nickname a wallet
+/summary - Daily P&L summary
+/export - Export watchlist to CSV
+/premium - Premium features info
 
-_Watchlist wallets send personal DM alerts:_
+**⚙️ ADMIN**
+/settings - Control panel
+/cron - Cron job status
+/logs - View system logs
+/restart - Restart components
+/trader - Auto-trader status
+
+_Watchlist alerts:_
 _• BUY: When they buy ≥1.5 SOL_
-_• SELL: When they sell (shows P/L if entry tracked)_"""
+_• SELL: When they sell (shows P/L)_"""
 
             await update.message.reply_text(msg1, parse_mode=ParseMode.MARKDOWN)
             await update.message.reply_text(msg2, parse_mode=ParseMode.MARKDOWN)
@@ -1726,6 +2103,39 @@ _Strategy: Copy Elite Wallets (BES >1000)_"""
             elif data == "refresh_trader":
                 await query.message.delete()
                 await self.cmd_trader(update, context)
+
+            # Quick action buttons from /buttons command
+            elif data == "btn_watchlist":
+                await query.message.delete()
+                await self.cmd_watchlist(update, context)
+
+            elif data == "btn_summary":
+                await query.message.delete()
+                await self.cmd_summary(update, context)
+
+            elif data == "btn_leaderboard":
+                await query.message.delete()
+                await self.cmd_leaderboard(update, context)
+
+            elif data == "btn_stats":
+                await query.message.delete()
+                await self.cmd_stats(update, context)
+
+            elif data == "btn_insiders":
+                await query.message.delete()
+                await self.cmd_insiders(update, context)
+
+            elif data == "btn_clusters":
+                await query.message.delete()
+                await self.cmd_clusters(update, context)
+
+            elif data == "btn_settings":
+                await query.message.delete()
+                await self.cmd_settings(update, context)
+
+            elif data == "btn_help":
+                await query.message.delete()
+                await self.cmd_help(update, context)
 
         except Exception as e:
             logger.error(f"Callback error: {e}")

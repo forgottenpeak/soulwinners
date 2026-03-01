@@ -154,11 +154,11 @@ def is_valid_solana_address(address: str) -> bool:
     return True
 
 
-def truncate_wallet(address: str, show_chars: int = 4) -> str:
+def truncate_wallet(address: str, show_chars: int = 5) -> str:
     """
     Truncate wallet address for display.
 
-    Example: "AbC123...xyz9" format
+    Example: "5Q544...pge4j" format (5 chars each side)
     """
     if not address or len(address) < show_chars * 2 + 3:
         return address

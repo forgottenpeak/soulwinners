@@ -68,10 +68,16 @@ class AlertFormatter:
         high_count = smart_money.get('high', 0)
         total_smart = smart_money.get('total', elite_count + high_count)
 
-        # Build message - include wallet address for /add command
+        # Truncate wallet for privacy (5+5 chars)
+        if wallet_address and len(wallet_address) > 12:
+            wallet_truncated = f"{wallet_address[:5]}...{wallet_address[-5:]}"
+        else:
+            wallet_truncated = wallet_address or "Unknown"
+
+        # Build message - show truncated wallet for privacy
         message = f"""{tier_emoji} {tier.upper()} WALLET BUY {tier_emoji}
 ⏰ Bought {time_ago}
-👛 Wallet: `{wallet_address}`
+👛 Wallet: `{wallet_truncated}`
 
 🪙 Token: {token_symbol} ({token_name})
 📍 CA: `{token_address}`

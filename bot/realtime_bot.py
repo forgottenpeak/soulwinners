@@ -239,12 +239,57 @@ class PriceService:
         return self.sol_price
 
 
+class InsiderTracker:
+    """Track insider wallets from insider_pool for special alerts."""
+
+    def __init__(self):
+        # wallet_address -> {pattern, confidence, win_rate, avg_roi}
+        self.insider_wallets: Dict[str, Dict] = {}
+
+    def load_insider_wallets(self):
+        """Load all insider wallets from database."""
+        self.insider_wallets.clear()
+
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT wallet_address, pattern, confidence, win_rate, avg_roi
+                FROM insider_pool
+            """)
+            rows = cursor.fetchall()
+            conn.close()
+
+            for row in rows:
+                wallet, pattern, conf, wr, roi = row
+                self.insider_wallets[wallet] = {
+                    'pattern': pattern or 'Unknown',
+                    'confidence': conf or 0,
+                    'win_rate': wr or 0,
+                    'avg_roi': roi or 0,
+                }
+
+            logger.info(f"Loaded {len(self.insider_wallets)} insider wallets for monitoring")
+
+        except Exception as e:
+            logger.warning(f"Failed to load insider wallets: {e}")
+
+    def is_insider(self, wallet_address: str) -> bool:
+        """Check if wallet is in insider pool."""
+        return wallet_address in self.insider_wallets
+
+    def get_insider_info(self, wallet_address: str) -> Optional[Dict]:
+        """Get insider info for a wallet."""
+        return self.insider_wallets.get(wallet_address)
+
+
 class RealTimeBot:
     """
     Real-time monitoring bot.
     - Polls Helius for new transactions
     - Only alerts on BUY transactions
     - Filters by transaction age and amount
+    - Auto-monitors INSIDER wallets with special alerts
     """
 
     def __init__(self):
@@ -258,9 +303,11 @@ class RealTimeBot:
         self.watchlist = WatchlistTracker()
         self.watchlist_positions = WatchlistPositionTracker()  # Track positions for sell P/L
         self.price_service = PriceService()
+        self.insider_tracker = InsiderTracker()  # NEW: Insider tracking
 
         self.qualified_wallets: Dict[str, Dict] = {}
-        self.watchlist_wallets: Set[str] = set()  # NEW: Watchlist wallet addresses
+        self.insider_wallets: Set[str] = set()  # NEW: Insider wallet addresses
+        self.watchlist_wallets: Set[str] = set()  # Watchlist wallet addresses
         self.last_signatures: Dict[str, str] = {}  # wallet -> last seen signature
         self.running = False
 
@@ -292,8 +339,13 @@ class RealTimeBot:
         self.watchlist.load_watchlist_wallets()
         self.watchlist_wallets = set(self.watchlist.watchlist_wallets.keys())
 
+        # Load insider wallets for special alerts
+        self.insider_tracker.load_insider_wallets()
+        self.insider_wallets = set(self.insider_tracker.insider_wallets.keys())
+
         logger.info(f"Loaded {len(self.qualified_wallets)} qualified wallets")
         logger.info(f"Loaded {len(self.watchlist_wallets)} watchlist wallets")
+        logger.info(f"Loaded {len(self.insider_wallets)} insider wallets")
         return len(self.qualified_wallets)
 
     async def start(self):
@@ -308,8 +360,11 @@ class RealTimeBot:
 
         watchlist_count = len(self.watchlist_wallets)
 
+        insider_count = len(self.insider_wallets)
+
         logger.info(f"Starting real-time monitor")
         logger.info(f"  Qualified wallets: {count}")
+        logger.info(f"  Insider wallets: {insider_count}")
         logger.info(f"  Watchlist wallets: {watchlist_count}")
         logger.info(f"  Min buy (qualified): {MIN_BUY_AMOUNT_SOL} SOL")
         logger.info(f"  Min buy (watchlist): {MIN_WATCHLIST_BUY_SOL} SOL")
@@ -322,9 +377,11 @@ class RealTimeBot:
                 chat_id=ADMIN_USER_ID,
                 text=f"🚀 **SoulWinners Online**\n\n"
                      f"📊 Qualified wallets: {count}\n"
+                     f"🎯 Insider wallets: {insider_count}\n"
                      f"👁️ Watchlist wallets: {watchlist_count}\n\n"
                      f"Monitoring buys ≥{MIN_BUY_AMOUNT_SOL} SOL (qualified)\n"
-                     f"Monitoring buys ≥{MIN_WATCHLIST_BUY_SOL} SOL (watchlist)",
+                     f"Monitoring buys ≥{MIN_WATCHLIST_BUY_SOL} SOL (watchlist)\n"
+                     f"🎯 Insider buys → special alerts",
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception as e:
@@ -340,31 +397,45 @@ class RealTimeBot:
             await asyncio.sleep(POLL_INTERVAL)
 
     async def _poll_cycle(self):
-        """One polling cycle - check qualified + watchlist wallets."""
+        """One polling cycle - check qualified + insider + watchlist wallets."""
         total_qualified = len(self.qualified_wallets)
+        total_insider = len(self.insider_wallets)
         total_watchlist = len(self.watchlist_wallets)
 
-        logger.info(f"📡 Poll cycle starting ({total_qualified} qualified + {total_watchlist} watchlist)...")
+        logger.info(f"📡 Poll cycle starting ({total_qualified} qualified + {total_insider} insiders + {total_watchlist} watchlist)...")
 
         checked = 0
 
         # Check qualified wallets (public channel alerts)
         for wallet_addr, wallet_data in self.qualified_wallets.items():
             try:
-                await self._check_wallet(wallet_addr, wallet_data, is_watchlist=False)
+                await self._check_wallet(wallet_addr, wallet_data, is_watchlist=False, is_insider=False)
                 checked += 1
                 await asyncio.sleep(1.5)  # Rate limit between wallets
             except Exception as e:
                 logger.warning(f"Error checking qualified {wallet_addr[:15]}...: {e}")
 
-        # Check watchlist wallets (personal DM alerts)
-        for wallet_addr in self.watchlist_wallets:
+        # Check insider wallets (special public channel alerts)
+        for wallet_addr in self.insider_wallets:
             # Skip if already checked as qualified wallet
             if wallet_addr in self.qualified_wallets:
                 continue
 
             try:
-                await self._check_wallet(wallet_addr, None, is_watchlist=True)
+                await self._check_wallet(wallet_addr, None, is_watchlist=False, is_insider=True)
+                checked += 1
+                await asyncio.sleep(1.5)  # Rate limit between wallets
+            except Exception as e:
+                logger.warning(f"Error checking insider {wallet_addr[:15]}...: {e}")
+
+        # Check watchlist wallets (personal DM alerts)
+        for wallet_addr in self.watchlist_wallets:
+            # Skip if already checked as qualified or insider wallet
+            if wallet_addr in self.qualified_wallets or wallet_addr in self.insider_wallets:
+                continue
+
+            try:
+                await self._check_wallet(wallet_addr, None, is_watchlist=True, is_insider=False)
                 checked += 1
                 await asyncio.sleep(1.5)  # Rate limit between wallets
             except Exception as e:
@@ -373,7 +444,7 @@ class RealTimeBot:
         logger.info(f"📡 Poll cycle complete ({checked} wallets checked)")
 
     async def _check_wallet(self, wallet_addr: str, wallet_data: Optional[Dict],
-                            is_watchlist: bool = False):
+                            is_watchlist: bool = False, is_insider: bool = False):
         """Check a single wallet for new transactions using rotated API keys."""
         api_key = await self.rotator.get_key()
         url = f"{self.base_url}/addresses/{wallet_addr}/transactions?api-key={api_key}&limit=5"
@@ -414,10 +485,11 @@ class RealTimeBot:
             if tx.get('signature') == last_sig:
                 break  # Reached previously seen tx
 
-            await self._process_transaction(tx, wallet_addr, wallet_data, is_watchlist)
+            await self._process_transaction(tx, wallet_addr, wallet_data, is_watchlist, is_insider)
 
     async def _process_transaction(self, tx: Dict, wallet_addr: str,
-                                    wallet_data: Optional[Dict], is_watchlist: bool = False):
+                                    wallet_data: Optional[Dict], is_watchlist: bool = False,
+                                    is_insider: bool = False):
         """Process a transaction and potentially send alert."""
         # 1. Parse the transaction
         parsed = self._parse_swap(tx, wallet_addr)
@@ -457,7 +529,20 @@ class RealTimeBot:
 
             return
 
-        # 4. Handle QUALIFIED wallets - buys only
+        # 4. Handle INSIDER wallets - buys only, special alert format
+        if is_insider:
+            if tx_type != 'buy':
+                return  # Skip sells for insider alerts
+
+            # Lower minimum for insiders (0.5 SOL)
+            if sol_amount < 0.5:
+                logger.debug(f"⏭️ Skipping small insider buy ({sol_amount:.4f} SOL < 0.5 SOL)")
+                return
+
+            await self._send_insider_alert(wallet_addr, parsed)
+            return
+
+        # 5. Handle QUALIFIED wallets - buys only
         if tx_type != 'buy':
             return  # Skip sells for qualified wallets
 
@@ -550,6 +635,117 @@ class RealTimeBot:
 
         except Exception as e:
             logger.error(f"❌ FAILED to send qualified alert: {e}")
+
+    async def _send_insider_alert(self, wallet_addr: str, parsed: Dict):
+        """Send special INSIDER ALERT to public channel when insider buys."""
+        token_address = parsed['token_address']
+        sol_amount = parsed['sol_amount']
+        tx_timestamp = parsed['timestamp']
+
+        # Get insider info
+        insider_info = self.insider_tracker.get_insider_info(wallet_addr)
+        pattern = insider_info.get('pattern', 'Unknown') if insider_info else 'Unknown'
+        confidence = insider_info.get('confidence', 0) if insider_info else 0
+        win_rate = insider_info.get('win_rate', 0) if insider_info else 0
+        avg_roi = insider_info.get('avg_roi', 0) if insider_info else 0
+
+        # Get token info from DexScreener
+        token_info = await self._get_token_info(token_address)
+        token_symbol = token_info.get('symbol', '???')
+        token_name = token_info.get('name', 'Unknown')
+        market_cap = token_info.get('market_cap', 0)
+        liquidity = token_info.get('liquidity', 0)
+
+        # Get SOL price
+        sol_price = await self.price_service.get_sol_price()
+        usd_value = sol_amount * sol_price
+
+        # Calculate time ago
+        now = datetime.now().timestamp()
+        age_seconds = now - tx_timestamp
+        if age_seconds < 60:
+            time_ago = "just now"
+        elif age_seconds < 3600:
+            time_ago = f"{int(age_seconds / 60)}m ago"
+        else:
+            time_ago = f"{int(age_seconds / 3600)}h ago"
+
+        # Truncate wallet for display (admin sees full in /insiders)
+        wallet_display = f"{wallet_addr[:5]}...{wallet_addr[-5:]}"
+
+        # Format confidence and win rate
+        conf_pct = confidence * 100 if confidence <= 1 else confidence
+        wr_pct = win_rate * 100 if win_rate <= 1 else win_rate
+
+        # Format market cap
+        def fmt_num(n):
+            if n >= 1_000_000_000:
+                return f"${n/1_000_000_000:.1f}B"
+            elif n >= 1_000_000:
+                return f"${n/1_000_000:.1f}M"
+            elif n >= 1_000:
+                return f"${n/1_000:.0f}K"
+            return f"${n:.0f}"
+
+        # Build special INSIDER ALERT message
+        message = f"""🎯 **INSIDER ALERT** 🎯
+⏰ Bought {time_ago}
+
+🪙 **Token:** ${token_symbol} ({token_name})
+📍 CA: `{token_address}`
+💰 Amount: {sol_amount:.2f} SOL (~${usd_value:.0f})
+
+📊 **TOKEN METRICS:**
+├─ MC: {fmt_num(market_cap)}
+└─ Liq: {fmt_num(liquidity)}
+
+🕵️ **INSIDER PROFILE:**
+├─ Pattern: {pattern}
+├─ Confidence: {conf_pct:.0f}%
+├─ Win Rate: {wr_pct:.0f}%
+├─ Avg ROI: {avg_roi:+.0f}%
+└─ Wallet: `{wallet_display}`
+
+⚠️ _Insider detected via launch/migration sniping_
+
+🔗 [DexScreener](https://dexscreener.com/solana/{token_address}) | [Birdeye](https://birdeye.so/token/{token_address}?chain=solana)"""
+
+        # Send to public channel
+        logger.info(f"🎯 Sending INSIDER alert for {token_symbol} ({sol_amount:.2f} SOL)...")
+
+        try:
+            image_url = token_info.get('image_url', '')
+            sent_message = None
+
+            if image_url:
+                try:
+                    sent_message = await self.bot.send_photo(
+                        chat_id=self.channel_id,
+                        photo=image_url,
+                        caption=message,
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                except Exception:
+                    sent_message = await self.bot.send_message(
+                        chat_id=self.channel_id,
+                        text=message,
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+            else:
+                sent_message = await self.bot.send_message(
+                    chat_id=self.channel_id,
+                    text=message,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+
+            # Cache message_id -> wallet for /add command lookup
+            if sent_message:
+                cache_alert_wallet(sent_message.message_id, wallet_addr)
+
+            logger.info(f"✅ INSIDER ALERT: {pattern} insider bought {token_symbol} for {sol_amount:.2f} SOL")
+
+        except Exception as e:
+            logger.error(f"❌ FAILED to send insider alert: {e}")
 
     async def _send_watchlist_buy_alert(self, wallet_addr: str, parsed: Dict):
         """Send personal DM buy alerts to users who have this wallet in their watchlist."""

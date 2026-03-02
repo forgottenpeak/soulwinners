@@ -50,11 +50,25 @@ class CommandBot:
 
     def __init__(self):
         self.token = TELEGRAM_BOT_TOKEN
-        self.admin_id = ADMIN_USER_ID
+        self.admin_id = self._load_admin_id()  # Load from file on init
         self.application = None
         self.helius_url = f"https://api.helius.xyz/v0"
         self.rotator = helius_rotator  # Use API key rotation
         self._balance_cache: Dict[str, Tuple[float, datetime]] = {}  # wallet -> (balance, timestamp)
+
+    def _load_admin_id(self) -> Optional[int]:
+        """Load admin ID from file if exists."""
+        try:
+            with open("data/admin_id.txt", "r") as f:
+                admin_id = int(f.read().strip())
+                logger.info(f"Loaded admin ID: {admin_id}")
+                return admin_id
+        except FileNotFoundError:
+            logger.warning("Admin ID file not found - use /register to set admin")
+            return None
+        except Exception as e:
+            logger.error(f"Error loading admin ID: {e}")
+            return None
 
     async def start(self):
         """Start the command bot."""
@@ -700,11 +714,11 @@ Use /watchlist to see all your watched wallets."""
 
         if not wallets:
             await update.message.reply_text(
-                "**Your Watchlist**\n\n"
-                "No wallets yet.\n\n"
-                "To add a wallet:\n"
-                "1. Forward a buy alert here\n"
-                "2. Reply to it with /add",
+                "📝 **Your Watchlist is Empty**\n\n"
+                "To start tracking wallets:\n"
+                "1. Forward a buy alert to this chat\n"
+                "2. Reply to that message with /add\n\n"
+                "The bot will analyze the wallet and add it to your watchlist.",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -925,7 +939,7 @@ Use /watchlist to see all your watched wallets."""
 
         logger.info(f"Summary command from user {user_id}")
 
-        await update.message.reply_text("📊 Calculating daily P&L...")
+        await update.message.reply_text("📊 Calculating 7-day P&L...")
 
         try:
             conn = get_connection()
@@ -947,13 +961,13 @@ Use /watchlist to see all your watched wallets."""
                 )
                 return
 
-            # Analyze each wallet's 24h activity
+            # Analyze each wallet's 7-day activity
             total_pnl_sol = 0
             total_trades = 0
             wallet_summaries = []
 
             for wallet_addr, nickname, win_rate, roi in wallets:
-                pnl = await self._get_24h_pnl(wallet_addr)
+                pnl = await self._get_7d_pnl(wallet_addr)
 
                 total_pnl_sol += pnl['pnl_sol']
                 total_trades += pnl['trades']
@@ -974,17 +988,17 @@ Use /watchlist to see all your watched wallets."""
             # Build message
             total_emoji = "📈" if total_pnl_sol >= 0 else "📉"
 
-            message = f"""📊 **DAILY P&L SUMMARY**
+            message = f"""📊 **7-DAY P&L SUMMARY**
 
 {total_emoji} **Total P&L:** {total_pnl_sol:+.2f} SOL
-📈 **Trades Today:** {total_trades}
+📈 **Trades (7d):** {total_trades}
 
 **By Wallet:**
 """
             for w in wallet_summaries[:10]:  # Top 10
                 message += f"{w['emoji']} {w['name']}: {w['pnl_sol']:+.2f} SOL ({w['trades']} trades)\n"
 
-            message += "\n_Based on last 24 hours of activity_"
+            message += "\n_Based on last 7 days of activity_"
 
             await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
 
@@ -992,13 +1006,14 @@ Use /watchlist to see all your watched wallets."""
             logger.error(f"Summary command error: {e}")
             await update.message.reply_text(f"Error calculating summary: {e}")
 
-    async def _get_24h_pnl(self, wallet_addr: str) -> Dict:
-        """Get 24h P&L for a wallet."""
+    async def _get_7d_pnl(self, wallet_addr: str) -> Dict:
+        """Get 7-day P&L for a wallet."""
         result = {'pnl_sol': 0.0, 'trades': 0}
 
         try:
             api_key = await self.rotator.get_key()
-            url = f"{self.helius_url}/addresses/{wallet_addr}/transactions?api-key={api_key}&limit=50"
+            # Increase limit to 100 for 7 days of data
+            url = f"{self.helius_url}/addresses/{wallet_addr}/transactions?api-key={api_key}&limit=100"
 
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=30) as response:
@@ -1007,7 +1022,7 @@ Use /watchlist to see all your watched wallets."""
                     txs = await response.json()
 
             now = datetime.now().timestamp()
-            day_ago = now - 86400
+            week_ago = now - (7 * 86400)  # 7 days in seconds
 
             skip_tokens = {
                 'So11111111111111111111111111111111111111112',
@@ -1020,7 +1035,7 @@ Use /watchlist to see all your watched wallets."""
 
             for tx in txs:
                 tx_time = tx.get('timestamp', 0)
-                if tx_time < day_ago:
+                if tx_time < week_ago:
                     continue
 
                 token_transfers = tx.get('tokenTransfers', [])

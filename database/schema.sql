@@ -215,6 +215,20 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
     ('monitor_enabled', 'true');
 
 -- =============================================================================
+-- TABLE 9: WALLET CLEANUP LOG (Track removed wallets)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS wallet_cleanup_log (
+    wallet_address TEXT PRIMARY KEY,
+    removed_at TIMESTAMP,
+    reason TEXT,
+    roi_at_removal REAL,
+    win_rate_at_removal REAL,
+    tier_at_removal TEXT,
+    days_inactive INTEGER,
+    consecutive_losses INTEGER
+);
+
+-- =============================================================================
 -- INDEXES for performance
 -- =============================================================================
 CREATE INDEX IF NOT EXISTS idx_wallet_metrics_tier ON wallet_metrics(tier);

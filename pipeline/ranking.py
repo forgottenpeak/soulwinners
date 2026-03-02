@@ -1,6 +1,7 @@
 """
 Ranking System
 Priority scoring and tier assignment matching your original methodology
+Uses IQR-based robust statistics to prevent outlier skew
 """
 import pandas as pd
 import numpy as np
@@ -17,6 +18,7 @@ from config.settings import (
     MIN_WIN_RATE,
     MIN_ROI,
 )
+from utils.statistics import calculate_iqr_bounds, cap_impossible_values
 
 logger = logging.getLogger(__name__)
 
@@ -51,21 +53,48 @@ class RankingSystem:
             'Mid-Tier': TIER_MID_PERCENTILE,
         }
 
-    def normalize_column(self, series: pd.Series) -> pd.Series:
-        """Normalize a series to 0-1 range using min-max scaling."""
-        min_val = series.min()
-        max_val = series.max()
-        if max_val == min_val:
+    def normalize_column(self, series: pd.Series, use_robust: bool = True) -> pd.Series:
+        """
+        Normalize a series to 0-1 range using robust scaling.
+
+        Uses IQR-based bounds to prevent outliers from compressing the scale.
+        Values outside bounds are clipped to 0 or 1.
+        """
+        if len(series) < 4 or not use_robust:
+            # Fall back to min-max for small datasets
+            min_val = series.min()
+            max_val = series.max()
+            if max_val == min_val:
+                return pd.Series(0.5, index=series.index)
+            return (series - min_val) / (max_val - min_val)
+
+        # Use IQR-based robust bounds
+        data = series.dropna().values
+        lower, upper = calculate_iqr_bounds(data, multiplier=1.5)
+
+        # If IQR gives invalid range, use percentiles instead
+        if upper <= lower:
+            lower = np.percentile(data, 5)
+            upper = np.percentile(data, 95)
+
+        if upper <= lower:
             return pd.Series(0.5, index=series.index)
-        return (series - min_val) / (max_val - min_val)
+
+        # Normalize using robust bounds and clip
+        normalized = (series - lower) / (upper - lower)
+        return normalized.clip(0, 1)
 
     def calculate_priority_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Calculate priority scores using your exact formula.
+        Uses IQR-based normalization to prevent outlier skew.
         """
         logger.info(f"Calculating priority scores for {len(df)} wallets")
 
         df_copy = df.copy()
+
+        # Cap impossible values first (e.g., win rate > 100%)
+        df_copy = cap_impossible_values(df_copy)
 
         # Normalize each metric to 0-1 range for fair weighting
         normalized = {}

@@ -35,6 +35,10 @@ from bot.utils import (
     is_valid_solana_address,
 )
 from bot.realtime_bot import get_wallet_from_alert_cache
+from utils.statistics import calculate_pool_robust_stats, robust_stats
+
+import pandas as pd
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -1292,20 +1296,25 @@ _Current status: {status}_"""
         return stats
 
     async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Pool statistics."""
+        """Pool statistics with IQR-filtered robust averages."""
         if not self._is_private(update) or not self._is_admin(update.effective_user.id):
             return
 
         logger.info(f"Stats command received from user {update.effective_user.id}")
         try:
             conn = get_connection()
-            cursor = conn.cursor()
 
-            # Total wallets
-            cursor.execute("SELECT COUNT(*) FROM qualified_wallets")
-            total = cursor.fetchone()[0]
+            # Load full DataFrame for robust stats
+            df = pd.read_sql_query("SELECT * FROM qualified_wallets", conn)
+            total = len(df)
+
+            if total == 0:
+                await update.message.reply_text("No wallets in pool yet.")
+                conn.close()
+                return
 
             # Tier breakdown
+            cursor = conn.cursor()
             cursor.execute("""
                 SELECT tier, COUNT(*), AVG(roi_pct), AVG(win_rate)
                 FROM qualified_wallets
@@ -1320,26 +1329,50 @@ _Current status: {status}_"""
                 GROUP BY cluster_name
             """)
             strategies = cursor.fetchall()
-
-            # Averages
-            cursor.execute("""
-                SELECT AVG(roi_pct), AVG(win_rate), AVG(current_balance_sol),
-                       SUM(current_balance_sol)
-                FROM qualified_wallets
-            """)
-            avgs = cursor.fetchone()
             conn.close()
 
-            avg_roi, avg_wr, avg_bal, total_sol = avgs
+            # Calculate RAW averages
+            raw_roi = df['roi_pct'].mean() if 'roi_pct' in df.columns else 0
+            raw_wr = df['win_rate'].mean() if 'win_rate' in df.columns else (
+                df['profit_token_ratio'].mean() if 'profit_token_ratio' in df.columns else 0
+            )
+            avg_bal = df['current_balance_sol'].mean() if 'current_balance_sol' in df.columns else 0
+            total_sol = df['current_balance_sol'].sum() if 'current_balance_sol' in df.columns else 0
+
+            # Calculate ROBUST (IQR-filtered) averages
+            robust_pool_stats = calculate_pool_robust_stats(df)
+
+            robust_roi = robust_pool_stats.get('roi_pct', {}).get('robust_mean', raw_roi)
+            roi_outliers = robust_pool_stats.get('roi_pct', {}).get('outliers_removed', 0)
+
+            wr_key = 'win_rate' if 'win_rate' in robust_pool_stats else 'profit_token_ratio'
+            robust_wr = robust_pool_stats.get(wr_key, {}).get('robust_mean', raw_wr)
+            wr_outliers = robust_pool_stats.get(wr_key, {}).get('outliers_removed', 0)
+
+            # Trade frequency stats
+            robust_tf = robust_pool_stats.get('trade_frequency', {}).get('robust_mean', 0)
+            raw_tf = robust_pool_stats.get('trade_frequency', {}).get('raw_mean', 0)
 
             message = f"""📈 **POOL STATISTICS**
 
 **Overview:**
 ├ Total Wallets: {total}
-├ Total SOL Tracked: {total_sol or 0:,.0f} SOL
-├ Avg ROI: {avg_roi or 0:,.0f}%
-├ Avg Win Rate: {(avg_wr or 0)*100:.0f}%
-└ Avg Balance: {avg_bal or 0:.2f} SOL
+├ Total SOL Tracked: {total_sol:,.0f} SOL
+└ Avg Balance: {avg_bal:.2f} SOL
+
+**ROI Analysis (IQR Filtered):**
+├ Raw Avg: {raw_roi:,.0f}%
+├ Robust Avg: {robust_roi:,.0f}%
+└ Outliers Removed: {roi_outliers}
+
+**Win Rate Analysis:**
+├ Raw Avg: {raw_wr*100:.0f}%
+├ Robust Avg: {robust_wr*100:.0f}%
+└ Outliers Removed: {wr_outliers}
+
+**Trade Frequency:**
+├ Raw Avg: {raw_tf:.1f} trades/day
+└ Robust Avg: {robust_tf:.1f} trades/day
 
 **Tier Breakdown:**
 """

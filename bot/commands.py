@@ -1836,92 +1836,109 @@ _Strategy: Copy Elite Wallets (BES >1000)_"""
             conn = get_connection()
             cursor = conn.cursor()
 
+            # Ensure table exists
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS insider_pool (
+                    wallet_address TEXT PRIMARY KEY,
+                    pattern TEXT,
+                    confidence REAL,
+                    signals TEXT,
+                    win_rate REAL,
+                    avg_roi REAL,
+                    cluster_id TEXT,
+                    cluster_label TEXT,
+                    discovered_at TIMESTAMP,
+                    last_updated TIMESTAMP,
+                    promoted_to_main INTEGER DEFAULT 0
+                )
+            """)
+            conn.commit()
+
             # Get insider pool stats
             cursor.execute("""
                 SELECT COUNT(*),
-                       AVG(early_entry_count),
+                       AVG(confidence),
                        AVG(win_rate),
-                       AVG(avg_hold_minutes)
+                       AVG(avg_roi)
                 FROM insider_pool
-                WHERE is_active = 1
             """)
             row = cursor.fetchone()
-            total = row[0] if row else 0
-            avg_entries = row[1] if row and row[1] else 0
+            total = row[0] if row and row[0] else 0
+            avg_conf = row[1] if row and row[1] else 0
             avg_wr = row[2] if row and row[2] else 0
-            avg_hold = row[3] if row and row[3] else 0
+            avg_roi = row[3] if row and row[3] else 0
 
-            # Get tier breakdown
-            cursor.execute("""
-                SELECT tier, COUNT(*)
-                FROM insider_pool
-                WHERE is_active = 1
-                GROUP BY tier
-                ORDER BY
-                    CASE tier
-                        WHEN 'Elite' THEN 1
-                        WHEN 'Pro' THEN 2
-                        WHEN 'Emerging' THEN 3
-                        ELSE 4
-                    END
-            """)
-            tiers = cursor.fetchall()
+            if total == 0:
+                conn.close()
+                await update.message.reply_text(
+                    "🎯 **INSIDER POOL**\n\n"
+                    "No insiders detected yet.\n\n"
+                    "Run the insider detection pipeline to find launch snipers.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
 
-            # Get recent additions
+            # Get pattern breakdown
             cursor.execute("""
-                SELECT wallet_address, tier, early_entry_count, discovered_at
+                SELECT pattern, COUNT(*)
                 FROM insider_pool
-                WHERE is_active = 1
-                ORDER BY discovered_at DESC
-                LIMIT 5
+                GROUP BY pattern
+                ORDER BY COUNT(*) DESC
             """)
-            recent = cursor.fetchall()
+            patterns = cursor.fetchall()
+
+            # Get top insiders by confidence
+            cursor.execute("""
+                SELECT wallet_address, pattern, confidence, win_rate, avg_roi
+                FROM insider_pool
+                ORDER BY confidence DESC, win_rate DESC
+                LIMIT 10
+            """)
+            top_insiders = cursor.fetchall()
 
             conn.close()
 
-            # Build tier breakdown
-            tier_text = ""
-            for tier, count in tiers:
+            # Build pattern breakdown
+            pattern_text = ""
+            for pattern, count in patterns:
+                pattern_name = pattern or "Unknown"
+                emoji = "🚀" if "Launch" in pattern_name else "🔄" if "Migration" in pattern_name else "🎯"
                 pct = int(count / total * 100) if total > 0 else 0
-                tier_text += f"├─ {tier}: {count} ({pct}%)\n"
-            if tier_text:
-                tier_text = tier_text[:-1]
-            else:
-                tier_text = "└─ No tiers yet"
+                pattern_text += f"{emoji} {pattern_name}: {count} ({pct}%)\n"
+            if not pattern_text:
+                pattern_text = "└─ No patterns yet"
 
-            # Build recent list
-            recent_text = ""
-            if recent:
-                for wallet, tier, entries, discovered in recent[:3]:
-                    short_addr = f"{wallet[:6]}...{wallet[-4:]}"
-                    recent_text += f"├─ {short_addr} ({tier})\n"
-                    recent_text += f"│  Entries: {entries}, Added: {discovered[:10]}\n"
-                recent_text = recent_text[:-1]
-            else:
-                recent_text = "└─ No recent additions"
+            # Build top insiders list
+            insider_text = ""
+            for i, (wallet, pattern, conf, wr, roi) in enumerate(top_insiders, 1):
+                short_addr = f"{wallet[:5]}...{wallet[-5:]}"
+                conf_pct = (conf or 0) * 100 if conf and conf <= 1 else (conf or 0)
+                wr_pct = (wr or 0) * 100 if wr and wr <= 1 else (wr or 0)
+                pattern_short = pattern[:15] if pattern else "Unknown"
+                insider_text += f"{i}. `{short_addr}` - {pattern_short} ({conf_pct:.0f}% conf)\n"
 
-            message = f"""🎯 <b>INSIDER POOL STATISTICS</b>
+            if not insider_text:
+                insider_text = "No insiders found"
+
+            message = f"""🎯 <b>INSIDER POOL</b> ({total} wallets)
 
 📊 <b>OVERVIEW</b>
 ├─ Total Insiders: {total}
-├─ Avg Early Entries: {avg_entries:.1f}
-├─ Avg Win Rate: {avg_wr:.1%}
-└─ Avg Hold Time: {int(avg_hold or 0)}m
+├─ Avg Confidence: {avg_conf*100 if avg_conf and avg_conf <= 1 else avg_conf:.0f}%
+├─ Avg Win Rate: {avg_wr*100 if avg_wr and avg_wr <= 1 else avg_wr:.0f}%
+└─ Avg ROI: {avg_roi:.0f}%
 
-🏆 <b>TIER BREAKDOWN</b>
-{tier_text}
-
-🆕 <b>RECENT ADDITIONS</b> (Last 3)
-{recent_text}
-
-<i>Fresh launch snipers detected every 15 minutes</i>
-<i>Use /early_birds to see latest catches</i>"""
+📈 <b>BY PATTERN</b>
+{pattern_text}
+🏆 <b>TOP INSIDERS</b> (By Confidence)
+{insider_text}
+<i>Insiders detected via launch/migration sniping patterns</i>"""
 
             await update.message.reply_text(message, parse_mode=ParseMode.HTML)
 
         except Exception as e:
             logger.error(f"Insiders command failed: {e}", exc_info=True)
-            await update.message.reply_text(f"⚠️ Insider pool not initialized yet or error: {str(e)}")
+            await update.message.reply_text(f"⚠️ Error loading insider pool: {str(e)}")
 
     async def cmd_clusters(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show detected wallet clusters."""
@@ -2004,30 +2021,67 @@ _Strategy: Copy Elite Wallets (BES >1000)_"""
             conn = get_connection()
             cursor = conn.cursor()
 
-            # Get early bird stats from insider pool
+            # Ensure table exists
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS insider_pool (
+                    wallet_address TEXT PRIMARY KEY,
+                    pattern TEXT,
+                    confidence REAL,
+                    signals TEXT,
+                    win_rate REAL,
+                    avg_roi REAL,
+                    cluster_id TEXT,
+                    cluster_label TEXT,
+                    discovered_at TIMESTAMP,
+                    last_updated TIMESTAMP,
+                    promoted_to_main INTEGER DEFAULT 0
+                )
+            """)
+            conn.commit()
+
+            # Get launch sniper stats
             cursor.execute("""
                 SELECT COUNT(*),
-                       AVG(early_entry_count),
+                       AVG(confidence),
                        AVG(win_rate),
-                       MAX(early_entry_count)
+                       MAX(confidence)
                 FROM insider_pool
-                WHERE is_active = 1
-                AND early_entry_count >= 3
+                WHERE pattern LIKE '%Launch%' OR pattern LIKE '%Sniper%'
             """)
             row = cursor.fetchone()
-            total = row[0] if row else 0
-            avg_entries = row[1] if row and row[1] else 0
+            total = row[0] if row and row[0] else 0
+            avg_conf = row[1] if row and row[1] else 0
             avg_wr = row[2] if row and row[2] else 0
-            max_entries = row[3] if row and row[3] else 0
+            max_conf = row[3] if row and row[3] else 0
 
-            # Get top performers
+            if total == 0:
+                # Try all insiders if no launch snipers
+                cursor.execute("SELECT COUNT(*) FROM insider_pool")
+                all_total = cursor.fetchone()[0]
+                conn.close()
+
+                if all_total == 0:
+                    await update.message.reply_text(
+                        "🐦 **EARLY BIRDS**\n\n"
+                        "No launch snipers detected yet.\n\n"
+                        "Run insider detection to find wallets that snipe fresh launches.",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                else:
+                    await update.message.reply_text(
+                        f"🐦 **EARLY BIRDS**\n\n"
+                        f"Found {all_total} insiders total.\n"
+                        f"Use /insiders to see all detected wallets.",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                return
+
+            # Get top snipers by confidence
             cursor.execute("""
-                SELECT wallet_address, tier, early_entry_count,
-                       win_rate, avg_roi_percent, discovered_at
+                SELECT wallet_address, pattern, confidence, win_rate, avg_roi, discovered_at
                 FROM insider_pool
-                WHERE is_active = 1
-                AND early_entry_count >= 3
-                ORDER BY early_entry_count DESC, win_rate DESC
+                WHERE pattern LIKE '%Launch%' OR pattern LIKE '%Sniper%'
+                ORDER BY confidence DESC, win_rate DESC
                 LIMIT 10
             """)
             top_snipers = cursor.fetchall()
@@ -2037,29 +2091,34 @@ _Strategy: Copy Elite Wallets (BES >1000)_"""
             # Build top snipers list
             sniper_text = ""
             if top_snipers:
-                for i, (wallet, tier, entries, wr, roi, discovered) in enumerate(top_snipers[:5], 1):
-                    short_addr = f"{wallet[:6]}...{wallet[-4:]}"
-                    sniper_text += f"<b>{i}. {short_addr}</b> ({tier})\n"
-                    sniper_text += f"├─ Early Entries: {entries}\n"
-                    sniper_text += f"├─ Win Rate: {wr:.1%}\n"
-                    sniper_text += f"├─ Avg ROI: {roi:+.1f}%\n"
-                    sniper_text += f"└─ Found: {discovered[:10]}\n\n"
+                for i, (wallet, pattern, conf, wr, roi, discovered) in enumerate(top_snipers[:5], 1):
+                    short_addr = f"{wallet[:5]}...{wallet[-5:]}"
+                    conf_pct = (conf or 0) * 100 if conf and conf <= 1 else (conf or 0)
+                    wr_pct = (wr or 0) * 100 if wr and wr <= 1 else (wr or 0)
+                    roi_val = roi or 0
+                    pattern_short = (pattern or "Sniper")[:15]
+                    disc_date = (discovered or "")[:10] if discovered else "Unknown"
+
+                    sniper_text += f"<b>{i}. <code>{short_addr}</code></b>\n"
+                    sniper_text += f"├─ Pattern: {pattern_short}\n"
+                    sniper_text += f"├─ Confidence: {conf_pct:.0f}%\n"
+                    sniper_text += f"├─ Win Rate: {wr_pct:.0f}%\n"
+                    sniper_text += f"└─ Found: {disc_date}\n\n"
             else:
-                sniper_text = "No early birds detected yet.\n"
+                sniper_text = "No snipers found.\n"
 
             message = f"""🐦 <b>FRESH LAUNCH SNIPERS</b>
 
 📊 <b>STATISTICS</b>
-├─ Total Early Birds: {total}
-├─ Avg Early Entries: {avg_entries:.1f}
-├─ Avg Win Rate: {avg_wr:.1%}
-└─ Max Entries: {max_entries}
+├─ Total Snipers: {total}
+├─ Avg Confidence: {avg_conf*100 if avg_conf and avg_conf <= 1 else avg_conf:.0f}%
+├─ Avg Win Rate: {avg_wr*100 if avg_wr and avg_wr <= 1 else avg_wr:.0f}%
+└─ Max Confidence: {max_conf*100 if max_conf and max_conf <= 1 else max_conf:.0f}%
 
-🏆 <b>TOP SNIPERS</b> (Most Early Entries)
+🏆 <b>TOP SNIPERS</b> (By Confidence)
 
 {sniper_text}
-<i>These wallets consistently buy within minutes of token creation</i>
-<i>Updated every 15 minutes via insider detection</i>"""
+<i>These wallets snipe tokens at launch</i>"""
 
             await update.message.reply_text(message, parse_mode=ParseMode.HTML)
 

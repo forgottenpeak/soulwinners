@@ -1826,11 +1826,13 @@ _Strategy: Copy Elite Wallets (BES >1000)_"""
             await update.message.reply_text(f"Error: {e}")
 
     async def cmd_insiders(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show insider pool statistics."""
+        """Show insider pool statistics with full details for admin."""
         if not self._is_private(update) or not self._is_admin(update.effective_user.id):
             return
 
-        logger.info(f"Insiders command received from user {update.effective_user.id}")
+        user_id = update.effective_user.id
+        is_admin = self._is_admin(user_id)
+        logger.info(f"Insiders command received from user {user_id} (admin={is_admin})")
 
         try:
             conn = get_connection()
@@ -1887,12 +1889,13 @@ _Strategy: Copy Elite Wallets (BES >1000)_"""
             """)
             patterns = cursor.fetchall()
 
-            # Get top insiders by confidence
+            # Get top insiders by confidence with more details
             cursor.execute("""
-                SELECT wallet_address, pattern, confidence, win_rate, avg_roi
+                SELECT wallet_address, pattern, confidence, win_rate, avg_roi,
+                       discovered_at, last_updated, promoted_to_main
                 FROM insider_pool
                 ORDER BY confidence DESC, win_rate DESC
-                LIMIT 10
+                LIMIT 15
             """)
             top_insiders = cursor.fetchall()
 
@@ -1908,14 +1911,53 @@ _Strategy: Copy Elite Wallets (BES >1000)_"""
             if not pattern_text:
                 pattern_text = "└─ No patterns yet"
 
-            # Build top insiders list
+            # Build top insiders list with detailed stats
             insider_text = ""
-            for i, (wallet, pattern, conf, wr, roi) in enumerate(top_insiders, 1):
-                short_addr = f"{wallet[:5]}...{wallet[-5:]}"
+            for i, row in enumerate(top_insiders, 1):
+                wallet = row[0]
+                pattern = row[1]
+                conf = row[2]
+                wr = row[3]
+                roi = row[4]
+                discovered = row[5]
+                last_updated = row[6]
+                promoted = row[7]
+
+                # Admin sees FULL wallet, others see truncated
+                if is_admin:
+                    wallet_display = wallet
+                else:
+                    wallet_display = f"{wallet[:5]}...{wallet[-5:]}"
+
                 conf_pct = (conf or 0) * 100 if conf and conf <= 1 else (conf or 0)
                 wr_pct = (wr or 0) * 100 if wr and wr <= 1 else (wr or 0)
-                pattern_short = pattern[:15] if pattern else "Unknown"
-                insider_text += f"{i}. `{short_addr}` - {pattern_short} ({conf_pct:.0f}% conf)\n"
+                roi_val = roi or 0
+                pattern_short = pattern[:12] if pattern else "Unknown"
+
+                # Format last activity
+                last_active = "Never"
+                if last_updated:
+                    try:
+                        last_dt = datetime.fromisoformat(str(last_updated).replace('Z', '+00:00'))
+                        days_ago = (datetime.now() - last_dt).days
+                        if days_ago == 0:
+                            last_active = "Today"
+                        elif days_ago == 1:
+                            last_active = "1d ago"
+                        else:
+                            last_active = f"{days_ago}d ago"
+                    except:
+                        last_active = str(last_updated)[:10]
+
+                # Promoted badge
+                promo_badge = "✅" if promoted else ""
+
+                insider_text += f"""
+<b>{i}. {pattern_short}</b> {promo_badge}
+<code>{wallet_display}</code>
+├ Conf: {conf_pct:.0f}% | WR: {wr_pct:.0f}% | ROI: {roi_val:+.0f}%
+└ Last: {last_active}
+"""
 
             if not insider_text:
                 insider_text = "No insiders found"
@@ -1932,7 +1974,8 @@ _Strategy: Copy Elite Wallets (BES >1000)_"""
 {pattern_text}
 🏆 <b>TOP INSIDERS</b> (By Confidence)
 {insider_text}
-<i>Insiders detected via launch/migration sniping patterns</i>"""
+<i>🔔 Insider buys auto-monitored with special alerts</i>
+<i>✅ = Promoted to main pool</i>"""
 
             await update.message.reply_text(message, parse_mode=ParseMode.HTML)
 

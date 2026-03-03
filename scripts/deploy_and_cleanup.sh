@@ -10,7 +10,7 @@ echo "========================================"
 
 # Configuration
 REMOTE_USER="root"
-REMOTE_HOST="147.79.68.86"
+REMOTE_HOST="80.240.22.200"
 REMOTE_PATH="/root/Soulwinners"
 LOCAL_PATH="/Users/APPLE/Desktop/Soulwinners"
 

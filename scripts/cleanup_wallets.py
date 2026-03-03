@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """
-Weekly Wallet Cleanup Script
+Weekly Wallet Cleanup Script - FIXED VERSION
 Removes stale and underperforming wallets from qualified_wallets pool.
+
+FIXES:
+- Proper last activity detection (no more 999 days bug)
+- Checks ALL transaction types, not just SWAP
+- Cross-references with transactions table
+- Conservative removal (only truly inactive wallets)
 
 Run weekly via cron: 0 0 * * 0 /root/Soulwinners/venv/bin/python3 /root/Soulwinners/scripts/cleanup_wallets.py
 Run immediately with: python scripts/cleanup_wallets.py --immediate
+Dry run: python scripts/cleanup_wallets.py --dry-run
 """
 import sys
 import os
@@ -34,28 +41,33 @@ from utils.statistics import (
     cap_impossible_values,
     get_performance_health_score
 )
+from collectors.helius import HeliusClient
 
 # Configure logging
+log_dir = Path(__file__).parent.parent / 'logs'
+log_dir.mkdir(exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(Path(__file__).parent.parent / 'logs' / 'cleanup.log')
+        logging.FileHandler(log_dir / 'cleanup.log')
     ]
 )
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# CLEANUP CRITERIA
+# CLEANUP CRITERIA (Conservative - only remove truly bad wallets)
 # =============================================================================
 CLEANUP_CRITERIA = {
-    'inactive_days': 90,          # Remove if no trades in X days
-    'min_win_rate': 0.50,         # Remove if win rate dropped below 50%
-    'min_roi': 0.0,               # Remove if ROI dropped below 0%
-    'consecutive_losses': 3,       # Remove if 3+ losses in a row (recent)
+    'inactive_days': 90,          # Remove if no trades in 90+ days
+    'min_win_rate': 0.40,         # Remove if win rate below 40% (very lenient)
+    'min_roi': -50.0,             # Remove if ROI below -50% (major loser)
+    'consecutive_losses': 5,       # Remove if 5+ losses in a row
     'lookback_days': 30,          # Check last 30 days of performance
+    'min_trades_for_judgment': 5,  # Need at least 5 trades to judge performance
 }
 
 
@@ -64,17 +76,10 @@ class WalletCleanup:
 
     def __init__(self, dry_run: bool = False):
         self.dry_run = dry_run
-        self.api_keys = HELIUS_FREE_KEYS.copy()
-        self.key_index = 0
+        self.helius = HeliusClient()  # Uses proper key rotation
         self.removed_wallets: List[Dict] = []
         self.stats_before: Dict = {}
         self.stats_after: Dict = {}
-
-    def get_api_key(self) -> str:
-        """Rotate through API keys."""
-        key = self.api_keys[self.key_index % len(self.api_keys)]
-        self.key_index += 1
-        return key
 
     def get_current_pool(self) -> pd.DataFrame:
         """Get all wallets from qualified_wallets table."""
@@ -86,165 +91,251 @@ class WalletCleanup:
         conn.close()
         return df
 
-    async def get_recent_transactions(
+    def get_last_activity_from_db(self, wallet_address: str) -> Optional[datetime]:
+        """
+        Check our local transactions table for last activity.
+        This is a fallback when Helius API doesn't return data.
+        """
+        conn = get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT MAX(timestamp) FROM transactions
+                WHERE wallet_address = ?
+            """, (wallet_address,))
+            result = cursor.fetchone()
+            if result and result[0]:
+                return datetime.fromisoformat(result[0])
+        except Exception as e:
+            logger.debug(f"DB lookup failed for {wallet_address[:8]}...: {e}")
+        finally:
+            conn.close()
+        return None
+
+    async def get_last_activity_from_helius(
         self,
         wallet_address: str,
-        days: int = 30
-    ) -> List[Dict]:
-        """Fetch recent transactions for a wallet from Helius."""
-        api_key = self.get_api_key()
-        url = f"https://api.helius.xyz/v0/addresses/{wallet_address}/transactions"
+    ) -> Tuple[Optional[datetime], int]:
+        """
+        Fetch REAL last activity from Helius API using key rotation.
+        Returns (last_activity_date, transaction_count_30d)
+        """
+        try:
+            # Use HeliusClient with proper key rotation
+            data = await self.helius.get_transaction_history(wallet_address, limit=100)
 
-        params = {
-            'api-key': api_key,
-            'type': 'SWAP',
+            if not data:
+                return None, 0
+
+            # Get last transaction timestamp
+            last_timestamp = data[0].get('timestamp', 0)
+            if last_timestamp:
+                last_activity = datetime.fromtimestamp(last_timestamp)
+            else:
+                last_activity = None
+
+            # Count transactions in last 30 days
+            cutoff = datetime.now() - timedelta(days=30)
+            recent_count = 0
+            for tx in data:
+                tx_time = tx.get('timestamp', 0)
+                if tx_time:
+                    tx_date = datetime.fromtimestamp(tx_time)
+                    if tx_date >= cutoff:
+                        recent_count += 1
+                    else:
+                        break  # Transactions are sorted newest first
+
+            return last_activity, recent_count
+
+        except Exception as e:
+            logger.debug(f"Error fetching transactions for {wallet_address[:8]}...: {e}")
+            return None, -1
+
+    async def analyze_wallet_activity(
+        self,
+        wallet_address: str
+    ) -> Dict[str, Any]:
+        """
+        Comprehensive activity analysis combining API and DB data.
+        """
+        result = {
+            'last_activity': None,
+            'last_activity_days_ago': None,
+            'recent_trade_count': 0,
+            'source': 'unknown',
+            'is_active': True,  # Assume active until proven otherwise
+        }
+
+        # Try Helius API first
+        api_activity, api_count = await self.get_last_activity_from_helius(wallet_address)
+
+        if api_count == -1:
+            # Rate limited or error - check DB as fallback
+            db_activity = self.get_last_activity_from_db(wallet_address)
+            if db_activity:
+                result['last_activity'] = db_activity
+                result['last_activity_days_ago'] = (datetime.now() - db_activity).days
+                result['source'] = 'database'
+                result['is_active'] = result['last_activity_days_ago'] < CLEANUP_CRITERIA['inactive_days']
+            else:
+                # Can't determine - assume active (conservative)
+                result['source'] = 'unknown_assume_active'
+                result['is_active'] = True
+            return result
+
+        if api_activity:
+            result['last_activity'] = api_activity
+            result['last_activity_days_ago'] = (datetime.now() - api_activity).days
+            result['recent_trade_count'] = api_count
+            result['source'] = 'helius_api'
+            result['is_active'] = result['last_activity_days_ago'] < CLEANUP_CRITERIA['inactive_days']
+        else:
+            # API returned empty - check DB as fallback
+            db_activity = self.get_last_activity_from_db(wallet_address)
+            if db_activity:
+                result['last_activity'] = db_activity
+                result['last_activity_days_ago'] = (datetime.now() - db_activity).days
+                result['source'] = 'database_fallback'
+                result['is_active'] = result['last_activity_days_ago'] < CLEANUP_CRITERIA['inactive_days']
+            else:
+                # Truly no activity found anywhere
+                result['last_activity_days_ago'] = 999
+                result['source'] = 'no_data'
+                result['is_active'] = False
+
+        return result
+
+    async def analyze_recent_performance(
+        self,
+        wallet_address: str,
+    ) -> Dict[str, Any]:
+        """
+        Analyze recent trading performance from Helius using key rotation.
+        """
+        result = {
+            'trade_count': 0,
+            'wins': 0,
+            'losses': 0,
+            'win_rate': None,  # None = not enough data
+            'consecutive_losses': 0,
+            'pnl_sol': 0,
         }
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, timeout=10) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
+            # Use HeliusClient with proper key rotation
+            data = await self.helius.get_transaction_history(wallet_address, limit=50)
 
-                        # Filter to recent transactions
-                        cutoff = datetime.now() - timedelta(days=days)
-                        recent = []
-                        for tx in data[:50]:  # Check last 50 transactions
-                            timestamp = tx.get('timestamp', 0)
-                            tx_date = datetime.fromtimestamp(timestamp)
-                            if tx_date >= cutoff:
-                                recent.append(tx)
-                        return recent
-                    return []
+            if not data:
+                return result
+
+            # Analyze only SWAP transactions for performance
+            cutoff = datetime.now() - timedelta(days=CLEANUP_CRITERIA['lookback_days'])
+            current_streak = 0
+            max_consecutive_losses = 0
+
+            for tx in data:
+                tx_time = tx.get('timestamp', 0)
+                if tx_time and datetime.fromtimestamp(tx_time) < cutoff:
+                    break
+
+                # Only analyze swap transactions for win/loss
+                tx_type = tx.get('type', '')
+                if 'SWAP' not in tx_type.upper():
+                    continue
+
+                result['trade_count'] += 1
+
+                # Analyze PnL from native transfers
+                native_transfers = tx.get('nativeTransfers', [])
+                fee_payer = tx.get('feePayer', wallet_address)
+
+                sol_in = sum(
+                    t.get('amount', 0) / 1e9
+                    for t in native_transfers
+                    if t.get('toUserAccount') == fee_payer
+                )
+                sol_out = sum(
+                    t.get('amount', 0) / 1e9
+                    for t in native_transfers
+                    if t.get('fromUserAccount') == fee_payer
+                )
+
+                net = sol_in - sol_out
+                result['pnl_sol'] += net
+
+                if net > 0:
+                    result['wins'] += 1
+                    current_streak = 0
+                elif net < 0:
+                    result['losses'] += 1
+                    current_streak += 1
+                    max_consecutive_losses = max(max_consecutive_losses, current_streak)
+
+            result['consecutive_losses'] = max_consecutive_losses
+
+            # Calculate win rate only if we have enough trades
+            total = result['wins'] + result['losses']
+            if total >= CLEANUP_CRITERIA['min_trades_for_judgment']:
+                result['win_rate'] = result['wins'] / total
+
+            return result
+
         except Exception as e:
-            logger.debug(f"Error fetching transactions for {wallet_address[:8]}...: {e}")
-            return []
-
-    def analyze_recent_performance(
-        self,
-        transactions: List[Dict]
-    ) -> Dict[str, Any]:
-        """Analyze recent transaction performance."""
-        if not transactions:
-            return {
-                'trade_count': 0,
-                'wins': 0,
-                'losses': 0,
-                'win_rate': 0,
-                'consecutive_losses': 0,
-                'last_trade_days_ago': 999,
-                'pnl_sol': 0,
-            }
-
-        wins = 0
-        losses = 0
-        consecutive_losses = 0
-        max_consecutive_losses = 0
-        current_streak = 0
-        pnl_sol = 0
-
-        # Sort by timestamp (newest first)
-        sorted_txs = sorted(transactions, key=lambda x: x.get('timestamp', 0), reverse=True)
-
-        for tx in sorted_txs:
-            # Simplified PnL analysis from transaction data
-            native_transfers = tx.get('nativeTransfers', [])
-
-            sol_in = sum(
-                t.get('amount', 0) / 1e9
-                for t in native_transfers
-                if t.get('toUserAccount') == tx.get('feePayer')
-            )
-            sol_out = sum(
-                t.get('amount', 0) / 1e9
-                for t in native_transfers
-                if t.get('fromUserAccount') == tx.get('feePayer')
-            )
-
-            net = sol_in - sol_out
-            pnl_sol += net
-
-            if net > 0:
-                wins += 1
-                current_streak = 0
-            else:
-                losses += 1
-                current_streak += 1
-                max_consecutive_losses = max(max_consecutive_losses, current_streak)
-
-        # Calculate last trade days ago
-        if sorted_txs:
-            last_timestamp = sorted_txs[0].get('timestamp', 0)
-            last_date = datetime.fromtimestamp(last_timestamp)
-            last_trade_days = (datetime.now() - last_date).days
-        else:
-            last_trade_days = 999
-
-        total_trades = wins + losses
-        win_rate = wins / total_trades if total_trades > 0 else 0
-
-        return {
-            'trade_count': total_trades,
-            'wins': wins,
-            'losses': losses,
-            'win_rate': win_rate,
-            'consecutive_losses': max_consecutive_losses,
-            'last_trade_days_ago': last_trade_days,
-            'pnl_sol': pnl_sol,
-        }
+            logger.debug(f"Error analyzing performance for {wallet_address[:8]}...: {e}")
+            return result
 
     def should_remove_wallet(
         self,
         wallet_data: Dict,
-        recent_perf: Dict
+        activity: Dict,
+        performance: Dict
     ) -> Tuple[bool, str]:
         """
         Determine if a wallet should be removed based on criteria.
+        CONSERVATIVE: Only remove wallets that clearly meet removal criteria.
 
         Returns:
             Tuple of (should_remove, reason)
         """
         reasons = []
 
-        # Check 1: Inactive for too long
-        last_trade_days = recent_perf.get('last_trade_days_ago', 999)
-        if last_trade_days >= CLEANUP_CRITERIA['inactive_days']:
-            reasons.append(f"inactive ({last_trade_days} days)")
+        # Check 1: Truly inactive (confirmed no activity)
+        if activity['source'] == 'no_data':
+            # Only remove if we're confident there's no data
+            reasons.append(f"no activity data found")
+        elif activity['last_activity_days_ago'] and activity['last_activity_days_ago'] >= CLEANUP_CRITERIA['inactive_days']:
+            reasons.append(f"inactive {activity['last_activity_days_ago']} days")
 
-        # Check 2: Win rate dropped below threshold
-        # Use recent win rate if available, otherwise current stored value
-        recent_win_rate = recent_perf.get('win_rate')
-        stored_win_rate = wallet_data.get('win_rate', wallet_data.get('profit_token_ratio', 0))
+        # Check 2: Very poor win rate (only if we have enough data)
+        if performance['win_rate'] is not None:
+            if performance['win_rate'] < CLEANUP_CRITERIA['min_win_rate']:
+                reasons.append(f"low win rate ({performance['win_rate']*100:.0f}%)")
 
-        if recent_perf['trade_count'] >= 5:  # Need enough data
-            if recent_win_rate < CLEANUP_CRITERIA['min_win_rate']:
-                reasons.append(f"low win rate ({recent_win_rate*100:.0f}%)")
-        elif stored_win_rate < CLEANUP_CRITERIA['min_win_rate']:
-            reasons.append(f"low win rate ({stored_win_rate*100:.0f}%)")
-
-        # Check 3: ROI dropped below threshold
+        # Check 3: Major ROI loss
         stored_roi = wallet_data.get('roi_pct', 0)
-        if stored_roi < CLEANUP_CRITERIA['min_roi'] * 100:
-            reasons.append(f"negative ROI ({stored_roi:.0f}%)")
+        if stored_roi < CLEANUP_CRITERIA['min_roi']:
+            reasons.append(f"severe loss ({stored_roi:.0f}% ROI)")
 
-        # Check 4: Too many consecutive losses
-        if recent_perf['consecutive_losses'] >= CLEANUP_CRITERIA['consecutive_losses']:
-            reasons.append(f"losing streak ({recent_perf['consecutive_losses']} losses)")
+        # Check 4: Extended losing streak (only with enough trades)
+        if performance['trade_count'] >= CLEANUP_CRITERIA['min_trades_for_judgment']:
+            if performance['consecutive_losses'] >= CLEANUP_CRITERIA['consecutive_losses']:
+                reasons.append(f"losing streak ({performance['consecutive_losses']} losses)")
 
         if reasons:
             return True, "; ".join(reasons)
         return False, ""
 
-    async def analyze_and_cleanup(self, batch_size: int = 20) -> Dict[str, Any]:
+    async def analyze_and_cleanup(self, batch_size: int = 10) -> Dict[str, Any]:
         """
         Main cleanup process:
         1. Load all wallets
-        2. Re-analyze recent performance
-        3. Remove underperforming wallets
+        2. Re-analyze activity and performance
+        3. Remove only truly problematic wallets
         4. Calculate before/after stats
         """
         logger.info("=" * 60)
-        logger.info("STARTING WALLET CLEANUP")
+        logger.info("STARTING WALLET CLEANUP (FIXED VERSION)")
         logger.info("=" * 60)
 
         # Get current pool
@@ -263,50 +354,64 @@ class WalletCleanup:
         # Analyze each wallet
         wallets_to_remove = []
         wallets_to_keep = []
+        skipped_count = 0
 
         logger.info(f"\nAnalyzing {total_wallets} wallets in batches of {batch_size}...")
+        logger.info(f"Criteria: inactive>{CLEANUP_CRITERIA['inactive_days']}d, "
+                   f"win_rate<{CLEANUP_CRITERIA['min_win_rate']*100}%, "
+                   f"ROI<{CLEANUP_CRITERIA['min_roi']}%, "
+                   f"losses>={CLEANUP_CRITERIA['consecutive_losses']}")
 
         wallet_list = df.to_dict('records')
 
         for i in range(0, len(wallet_list), batch_size):
             batch = wallet_list[i:i+batch_size]
 
-            tasks = []
             for wallet in batch:
-                tasks.append(self.get_recent_transactions(
-                    wallet['wallet_address'],
-                    days=CLEANUP_CRITERIA['lookback_days']
-                ))
+                wallet_addr = wallet['wallet_address']
 
-            # Fetch transactions in parallel
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+                # Get activity data
+                activity = await self.analyze_wallet_activity(wallet_addr)
 
-            for wallet, txs in zip(batch, results):
-                if isinstance(txs, Exception):
-                    txs = []
+                # Get performance data (only if potentially inactive)
+                performance = {'trade_count': 0, 'wins': 0, 'losses': 0,
+                             'win_rate': None, 'consecutive_losses': 0, 'pnl_sol': 0}
 
-                recent_perf = self.analyze_recent_performance(txs)
-                should_remove, reason = self.should_remove_wallet(wallet, recent_perf)
+                if not activity['is_active'] or activity['source'] == 'unknown_assume_active':
+                    # Check performance for inactive or unknown wallets
+                    performance = await self.analyze_recent_performance(wallet_addr)
+
+                # Make decision
+                should_remove, reason = self.should_remove_wallet(wallet, activity, performance)
 
                 if should_remove:
                     wallets_to_remove.append({
-                        'wallet_address': wallet['wallet_address'],
+                        'wallet_address': wallet_addr,
                         'tier': wallet.get('tier', 'Unknown'),
                         'roi_pct': wallet.get('roi_pct', 0),
                         'win_rate': wallet.get('win_rate', wallet.get('profit_token_ratio', 0)),
                         'reason': reason,
+                        'last_activity': activity.get('last_activity'),
+                        'activity_source': activity.get('source'),
                     })
                     logger.info(
-                        f"  REMOVE: {wallet['wallet_address'][:12]}... "
+                        f"  REMOVE: {wallet_addr[:12]}... "
                         f"({wallet.get('tier', 'Unknown')}) - {reason}"
                     )
                 else:
                     wallets_to_keep.append(wallet)
+                    if activity['source'] == 'unknown_assume_active':
+                        skipped_count += 1
+
+                # Small delay between wallets
+                await asyncio.sleep(0.2)
 
             logger.info(f"  Processed {min(i+batch_size, total_wallets)}/{total_wallets} wallets...")
-            await asyncio.sleep(0.5)  # Rate limiting
+            await asyncio.sleep(1)  # Longer pause between batches
 
         self.removed_wallets = wallets_to_remove
+
+        logger.info(f"\nSkipped {skipped_count} wallets due to uncertain status (assumed active)")
 
         # Perform removal
         removed_count = 0
@@ -334,26 +439,33 @@ class WalletCleanup:
         }
 
     def _remove_wallets_from_db(self, wallet_addresses: List[str]) -> int:
-        """Remove wallets from qualified_wallets table."""
+        """Remove wallets from qualified_wallets table and archive them."""
         if not wallet_addresses:
             return 0
 
         conn = get_connection()
         cursor = conn.cursor()
 
-        # Archive removed wallets first
+        # Archive removed wallets with full data
         for addr in wallet_addresses:
+            wallet_info = next((w for w in self.removed_wallets
+                               if w['wallet_address'] == addr), {})
             cursor.execute("""
                 INSERT OR REPLACE INTO wallet_cleanup_log (
                     wallet_address,
                     removed_at,
-                    reason
-                ) VALUES (?, ?, ?)
+                    reason,
+                    roi_at_removal,
+                    win_rate_at_removal,
+                    tier_at_removal
+                ) VALUES (?, ?, ?, ?, ?, ?)
             """, (
                 addr,
                 datetime.now().isoformat(),
-                next((w['reason'] for w in self.removed_wallets
-                      if w['wallet_address'] == addr), 'unknown')
+                wallet_info.get('reason', 'unknown'),
+                wallet_info.get('roi_pct', 0),
+                wallet_info.get('win_rate', 0),
+                wallet_info.get('tier', 'Unknown'),
             ))
 
         # Remove from qualified_wallets
@@ -367,7 +479,7 @@ class WalletCleanup:
         conn.commit()
         conn.close()
 
-        logger.info(f"Removed {removed} wallets from database")
+        logger.info(f"Removed {removed} wallets from database (archived in cleanup_log)")
         return removed
 
     def _log_summary(self, total: int, removed: int, kept: int):
@@ -376,35 +488,26 @@ class WalletCleanup:
         logger.info("CLEANUP SUMMARY")
         logger.info("=" * 60)
 
+        actual_removed = len(self.removed_wallets) if self.dry_run else removed
+
         logger.info(f"\nPool Changes:")
         logger.info(f"  Before: {total} wallets")
-        logger.info(f"  Removed: {removed} wallets ({removed/total*100:.1f}%)" if total > 0 else "  Removed: 0")
-        logger.info(f"  After: {kept} wallets")
+        logger.info(f"  Removed: {actual_removed} wallets ({actual_removed/total*100:.1f}%)" if total > 0 else "  Removed: 0")
+        logger.info(f"  After: {total - actual_removed} wallets")
 
-        if self.stats_before and self.stats_after:
-            logger.info(f"\nROI Statistics:")
+        if self.stats_before:
+            logger.info(f"\nStatistics (IQR Filtered):")
             if 'roi_pct' in self.stats_before:
-                logger.info(f"  BEFORE - Raw: {self.stats_before['roi_pct']['raw_mean']:.0f}%, "
-                           f"Robust: {self.stats_before['roi_pct']['robust_mean']:.0f}%")
-            if 'roi_pct' in self.stats_after:
-                logger.info(f"  AFTER  - Raw: {self.stats_after['roi_pct']['raw_mean']:.0f}%, "
-                           f"Robust: {self.stats_after['roi_pct']['robust_mean']:.0f}%")
-
-            logger.info(f"\nWin Rate Statistics:")
-            wr_key = 'win_rate' if 'win_rate' in self.stats_before else 'profit_token_ratio'
-            if wr_key in self.stats_before:
-                logger.info(f"  BEFORE - Raw: {self.stats_before[wr_key]['raw_mean']*100:.0f}%, "
-                           f"Robust: {self.stats_before[wr_key]['robust_mean']*100:.0f}%")
-            if wr_key in self.stats_after:
-                logger.info(f"  AFTER  - Raw: {self.stats_after[wr_key]['raw_mean']*100:.0f}%, "
-                           f"Robust: {self.stats_after[wr_key]['robust_mean']*100:.0f}%")
+                logger.info(f"  BEFORE - Robust ROI: {self.stats_before['roi_pct']['robust_mean']:.0f}%")
+            if self.stats_after and 'roi_pct' in self.stats_after:
+                logger.info(f"  AFTER  - Robust ROI: {self.stats_after['roi_pct']['robust_mean']:.0f}%")
 
         if self.removed_wallets:
-            logger.info(f"\nRemoved Wallets:")
-            for w in self.removed_wallets[:10]:  # Show first 10
+            logger.info(f"\nRemoved Wallets ({len(self.removed_wallets)}):")
+            for w in self.removed_wallets[:15]:
                 logger.info(f"  {w['wallet_address'][:12]}... [{w['tier']}] - {w['reason']}")
-            if len(self.removed_wallets) > 10:
-                logger.info(f"  ... and {len(self.removed_wallets) - 10} more")
+            if len(self.removed_wallets) > 15:
+                logger.info(f"  ... and {len(self.removed_wallets) - 15} more")
 
         logger.info("\n" + "=" * 60)
 
@@ -416,6 +519,7 @@ class WalletCleanup:
         if not self.removed_wallets:
             return
 
+        DATA_DIR.mkdir(exist_ok=True)
         log_path = DATA_DIR / f"cleanup_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         df = pd.DataFrame(self.removed_wallets)
         df.to_csv(log_path, index=False)
@@ -431,7 +535,10 @@ def ensure_cleanup_log_table():
             removed_at TIMESTAMP,
             reason TEXT,
             roi_at_removal REAL,
-            win_rate_at_removal REAL
+            win_rate_at_removal REAL,
+            tier_at_removal TEXT,
+            days_inactive INTEGER,
+            consecutive_losses INTEGER
         )
     """)
     conn.commit()
@@ -457,7 +564,7 @@ async def run_cleanup(dry_run: bool = False, immediate: bool = False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Weekly Wallet Cleanup Script')
+    parser = argparse.ArgumentParser(description='Weekly Wallet Cleanup Script (FIXED)')
     parser.add_argument(
         '--dry-run', '-d',
         action='store_true',
@@ -478,11 +585,7 @@ def main():
     ))
 
     # Exit with appropriate code
-    if result['removed'] > 0 or args.dry_run:
-        sys.exit(0)
-    else:
-        logger.info("No wallets needed removal")
-        sys.exit(0)
+    sys.exit(0)
 
 
 if __name__ == "__main__":

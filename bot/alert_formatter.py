@@ -1,8 +1,108 @@
 """
 Alert Formatter - CORRECT format with token metrics
+With LIVE balance fetching from Helius API
 """
+import asyncio
+import aiohttp
+import logging
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
+
+from config.settings import HELIUS_FREE_KEYS
+
+logger = logging.getLogger(__name__)
+
+
+async def fetch_live_balance(wallet_address: str) -> Optional[float]:
+    """
+    Fetch LIVE SOL balance from Helius API.
+    Returns balance in SOL or None if fetch fails.
+    """
+    api_key = HELIUS_FREE_KEYS[0] if HELIUS_FREE_KEYS else None
+    if not api_key:
+        return None
+
+    url = f"https://api.helius.xyz/v0/addresses/{wallet_address}/balances"
+    params = {'api-key': api_key}
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params, timeout=5) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    # Native SOL balance is in lamports
+                    native_balance = data.get('nativeBalance', 0)
+                    return native_balance / 1e9  # Convert to SOL
+    except Exception as e:
+        logger.debug(f"Failed to fetch live balance for {wallet_address[:12]}...: {e}")
+
+    return None
+
+
+async def fetch_live_wallet_stats(wallet_address: str) -> Dict:
+    """
+    Fetch fresh wallet statistics from recent transactions.
+    Returns dict with win_rate, roi estimate, recent_trades.
+    """
+    api_key = HELIUS_FREE_KEYS[0] if HELIUS_FREE_KEYS else None
+    if not api_key:
+        return {}
+
+    url = f"https://api.helius.xyz/v0/addresses/{wallet_address}/transactions"
+    params = {'api-key': api_key, 'limit': 50}
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params, timeout=10) as resp:
+                if resp.status == 200:
+                    txs = await resp.json()
+
+                    if not txs:
+                        return {}
+
+                    wins = 0
+                    losses = 0
+                    total_pnl = 0
+
+                    for tx in txs:
+                        if 'SWAP' not in tx.get('type', '').upper():
+                            continue
+
+                        native_transfers = tx.get('nativeTransfers', [])
+                        fee_payer = tx.get('feePayer', wallet_address)
+
+                        sol_in = sum(
+                            t.get('amount', 0) / 1e9
+                            for t in native_transfers
+                            if t.get('toUserAccount') == fee_payer
+                        )
+                        sol_out = sum(
+                            t.get('amount', 0) / 1e9
+                            for t in native_transfers
+                            if t.get('fromUserAccount') == fee_payer
+                        )
+
+                        net = sol_in - sol_out
+                        total_pnl += net
+
+                        if net > 0:
+                            wins += 1
+                        elif net < 0:
+                            losses += 1
+
+                    total_trades = wins + losses
+                    win_rate = wins / total_trades if total_trades > 0 else 0
+
+                    return {
+                        'live_win_rate': win_rate,
+                        'recent_trades': total_trades,
+                        'recent_pnl_sol': total_pnl,
+                    }
+
+    except Exception as e:
+        logger.debug(f"Failed to fetch live stats for {wallet_address[:12]}...: {e}")
+
+    return {}
 
 
 def format_number(num: float) -> str:
@@ -19,6 +119,50 @@ def format_number(num: float) -> str:
 
 class AlertFormatter:
     """Format alerts exactly as specified."""
+
+    async def format_buy_alert_async(
+        self,
+        wallet: Dict,
+        token: Dict,
+        trade: Dict,
+        smart_money: Dict,
+        recent_trades: List[Dict],
+        sol_price: float = 78.0,
+        fetch_live: bool = True
+    ) -> str:
+        """
+        Format a buy alert with LIVE balance and stats.
+        Async version that fetches fresh data from Helius.
+        """
+        wallet_address = wallet.get('wallet_address', '')
+
+        # Fetch LIVE balance and stats if enabled
+        live_balance = None
+        live_stats = {}
+
+        if fetch_live and wallet_address:
+            try:
+                live_balance, live_stats = await asyncio.gather(
+                    fetch_live_balance(wallet_address),
+                    fetch_live_wallet_stats(wallet_address)
+                )
+            except Exception as e:
+                logger.debug(f"Failed to fetch live data: {e}")
+
+        # Use live balance if available, otherwise fall back to cached
+        if live_balance is not None:
+            wallet = wallet.copy()
+            wallet['current_balance_sol'] = live_balance
+            wallet['_balance_source'] = 'live'
+
+        # Update win rate if we have live stats
+        if live_stats.get('live_win_rate') is not None:
+            wallet = wallet.copy() if '_balance_source' not in wallet else wallet
+            wallet['win_rate'] = live_stats['live_win_rate']
+            wallet['_stats_source'] = 'live'
+
+        # Call the sync formatter
+        return self.format_buy_alert(wallet, token, trade, smart_money, recent_trades, sol_price)
 
     def format_buy_alert(
         self,
@@ -57,11 +201,14 @@ class AlertFormatter:
         volume_1h = token.get('volume_1h', 0)
         price_change_1h = token.get('price_change_1h', 0)
 
-        # Wallet stats
+        # Wallet stats (may be live or cached)
         win_rate = wallet.get('win_rate', 0) or wallet.get('profit_token_ratio', 0) or 0
         roi = wallet.get('roi_pct', 0) or 0
         x10_rate = wallet.get('x10_ratio', 0) or 0
         balance = wallet.get('current_balance_sol', 0) or 0
+
+        # Show indicator if using live data
+        balance_indicator = " (LIVE)" if wallet.get('_balance_source') == 'live' else ""
 
         # Smart money counts
         elite_count = smart_money.get('elite', 0)
@@ -93,7 +240,7 @@ class AlertFormatter:
 ├ Win Rate: {win_rate*100:.1f}%
 ├ ROI: {roi:.1f}%
 ├ 10x+ Rate: {x10_rate*100:.1f}%
-└ Balance: {balance:.2f} SOL
+└ Balance: {balance:.2f} SOL{balance_indicator}
 
 💡 SMART MONEY ACTIVITY:
 ├─ 🔥 {elite_count} Elite wallets bought this

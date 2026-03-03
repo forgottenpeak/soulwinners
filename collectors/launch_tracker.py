@@ -80,6 +80,66 @@ class LaunchTracker:
         self.fresh_migrations: List[FreshToken] = []  # Recently migrated tokens (0-6h)
         self.rotator = helius_rotator  # Use FREE key rotation for background jobs
         self.api_key = HELIUS_API_KEY  # Legacy fallback
+        self.debug_timestamps = True  # Enable timestamp debugging
+
+    def _parse_timestamp(self, timestamp_ms: int, token_symbol: str = "???") -> Optional[datetime]:
+        """
+        Parse DexScreener timestamp with proper validation.
+
+        DexScreener returns pairCreatedAt in milliseconds.
+        Some timestamps may be invalid (future dates, wrong format).
+
+        Returns None if timestamp is invalid.
+        """
+        if not timestamp_ms:
+            return None
+
+        now = datetime.now()
+        now_ms = int(now.timestamp() * 1000)
+
+        # If timestamp is in seconds (not milliseconds), convert it
+        if timestamp_ms < 10_000_000_000:  # Less than year 2286 in seconds
+            timestamp_ms = timestamp_ms * 1000
+
+        # Convert to datetime
+        try:
+            launch_time = datetime.fromtimestamp(timestamp_ms / 1000)
+        except (OSError, ValueError, OverflowError) as e:
+            logger.debug(f"Invalid timestamp {timestamp_ms} for {token_symbol}: {e}")
+            return None
+
+        # Check if timestamp is in the future (invalid)
+        if launch_time > now:
+            if self.debug_timestamps:
+                logger.warning(
+                    f"FUTURE timestamp for {token_symbol}: "
+                    f"pairCreatedAt={timestamp_ms} -> {launch_time} (now={now})"
+                )
+            # Option 1: Treat future timestamps as "just created" (use current time)
+            # This allows us to still track the token
+            return now
+
+        # Check if timestamp is too old (before 2024 = probably invalid)
+        if launch_time.year < 2024:
+            if self.debug_timestamps:
+                logger.debug(f"OLD timestamp for {token_symbol}: {launch_time}")
+            return None
+
+        return launch_time
+
+    def _calculate_age_hours(self, launch_time: datetime) -> float:
+        """Calculate age in hours, handling edge cases."""
+        if not launch_time:
+            return 999  # Invalid - very old
+
+        now = datetime.now()
+        age_seconds = (now - launch_time).total_seconds()
+
+        # Negative age means future timestamp (should be handled by _parse_timestamp)
+        if age_seconds < 0:
+            return 0  # Treat as "just created"
+
+        return age_seconds / 3600
 
     async def _get_api_key(self) -> str:
         """Get next API key from rotator (FREE pool)."""
@@ -111,9 +171,9 @@ class LaunchTracker:
         Scan DexScreener for fresh Raydium pairs (Pump.fun graduations).
 
         Uses multiple endpoints to maximize token discovery:
-        1. Token boosts/latest endpoint for trending new tokens
-        2. Search API with multiple queries
-        3. Solana-specific pair searches
+        1. Latest pairs endpoint (NEWEST pairs - most important!)
+        2. Token boosts for trending new tokens
+        3. Search API with multiple queries
 
         Target: 50-100+ fresh tokens per scan.
         """
@@ -127,6 +187,128 @@ class LaunchTracker:
         }
 
         async with aiohttp.ClientSession() as session:
+            # Source 0: LATEST PAIRS - Most important for fresh tokens!
+            # This endpoint returns the NEWEST pairs sorted by creation time
+            try:
+                latest_url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+                async with session.get(latest_url, headers=headers, timeout=15) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        pairs = data.get('pairs', []) if isinstance(data, dict) else data
+                        logger.info(f"DexScreener latest pairs returned {len(pairs)} pairs")
+
+                        fresh_count = 0
+                        for pair in pairs[:200]:  # Check more pairs
+                            try:
+                                if pair.get('chainId') != 'solana':
+                                    continue
+
+                                dex_id = pair.get('dexId', '')
+                                if 'raydium' not in dex_id.lower():
+                                    continue
+
+                                base_token = pair.get('baseToken', {})
+                                mint = base_token.get('address', '')
+                                symbol = base_token.get('symbol', '???')
+
+                                if not mint or mint in seen_mints:
+                                    continue
+                                seen_mints.add(mint)
+
+                                pair_created_at = pair.get('pairCreatedAt')
+                                if not pair_created_at:
+                                    continue
+
+                                launch_time = self._parse_timestamp(pair_created_at, symbol)
+                                if not launch_time:
+                                    continue
+
+                                age_hours = self._calculate_age_hours(launch_time)
+
+                                if age_hours <= self.max_age_hours:
+                                    token = FreshToken(
+                                        address=mint,
+                                        symbol=symbol,
+                                        name=base_token.get('name', 'Unknown'),
+                                        launch_time=launch_time,
+                                        pump_graduated='raydium' in dex_id.lower(),
+                                        migration_detected=True,
+                                        migration_time=launch_time,
+                                        hours_since_migration=age_hours,
+                                    )
+                                    tokens.append(token)
+                                    fresh_count += 1
+                                    logger.info(f"  FRESH (latest): {symbol} - {age_hours:.1f}h old")
+
+                            except Exception as e:
+                                logger.debug(f"Error parsing latest pair: {e}")
+
+                        if fresh_count > 0:
+                            logger.info(f"Found {fresh_count} fresh tokens from latest pairs endpoint!")
+
+            except Exception as e:
+                logger.debug(f"Latest pairs endpoint failed: {e}")
+            # Source 0.5: Pump.fun API directly for recently launched tokens
+            try:
+                # Pump.fun's own API for coins
+                pump_urls = [
+                    "https://frontend-api.pump.fun/coins?offset=0&limit=50&sort=last_trade_timestamp&order=DESC",
+                    "https://frontend-api.pump.fun/coins?offset=0&limit=50&sort=created_timestamp&order=DESC",
+                ]
+
+                for pump_url in pump_urls:
+                    try:
+                        async with session.get(pump_url, headers=headers, timeout=15) as response:
+                            if response.status == 200:
+                                coins = await response.json()
+                                logger.info(f"Pump.fun API returned {len(coins) if isinstance(coins, list) else 0} coins")
+
+                                for coin in (coins if isinstance(coins, list) else [])[:50]:
+                                    try:
+                                        mint = coin.get('mint', '')
+                                        symbol = coin.get('symbol', '???')
+
+                                        if not mint or mint in seen_mints:
+                                            continue
+                                        seen_mints.add(mint)
+
+                                        # Pump.fun uses created_timestamp (unix seconds or ms)
+                                        created_ts = coin.get('created_timestamp', 0)
+                                        if created_ts:
+                                            launch_time = self._parse_timestamp(
+                                                created_ts if created_ts > 10_000_000_000 else created_ts * 1000,
+                                                symbol
+                                            )
+                                            if launch_time:
+                                                age_hours = self._calculate_age_hours(launch_time)
+
+                                                if age_hours <= self.max_age_hours:
+                                                    # Check if it has migrated to Raydium
+                                                    is_graduated = coin.get('raydium_pool') is not None or coin.get('complete', False)
+
+                                                    token = FreshToken(
+                                                        address=mint,
+                                                        symbol=symbol,
+                                                        name=coin.get('name', 'Unknown'),
+                                                        launch_time=launch_time,
+                                                        pump_graduated=is_graduated,
+                                                        migration_detected=is_graduated,
+                                                        migration_time=launch_time if is_graduated else None,
+                                                        hours_since_migration=age_hours if is_graduated else 0,
+                                                    )
+                                                    tokens.append(token)
+                                                    logger.info(f"  FRESH (pump.fun): {symbol} - {age_hours:.1f}h old {'[GRADUATED]' if is_graduated else ''}")
+
+                                    except Exception as e:
+                                        logger.debug(f"Error parsing pump.fun coin: {e}")
+
+                        await asyncio.sleep(0.3)
+                    except Exception as e:
+                        logger.debug(f"Pump.fun API failed: {e}")
+
+            except Exception as e:
+                logger.debug(f"Pump.fun source failed: {e}")
+
             # Source 1: Token Boosts (trending new tokens)
             try:
                 boost_url = "https://api.dexscreener.com/token-boosts/latest/v1"
@@ -185,13 +367,26 @@ class LaunchTracker:
             except Exception as e:
                 logger.debug(f"Profiles endpoint failed: {e}")
 
-            # Source 3: Multiple search queries for Raydium pairs
+            # Source 3: Multiple search queries for fresh Solana pairs
+            # IMPORTANT: Use keywords that return NEW tokens, not trending/popular ones!
             search_queries = [
-                "raydium",      # Main Raydium pairs
-                "pump",         # Pump.fun tokens
-                "sol",          # SOL pairs
-                "solana",       # Solana tokens
+                "new",          # NEW tokens - returns freshest tokens!
+                "launch",       # Recently launched
+                "graduated",    # Pump.fun graduated tokens
+                "migrated",     # Recently migrated to Raydium
+                "raydium new",  # New Raydium pairs
+                "just listed",  # Just listed tokens
             ]
+
+            # DEXes to accept for fresh token discovery
+            # Fresh tokens may be on pump.fun, launchlab, etc. before migrating to Raydium
+            VALID_DEXES = {'raydium', 'pumpfun', 'pump.fun', 'launchlab', 'meteora', 'meteoradbc', 'pumpswap'}
+
+            # Track statistics for debugging
+            total_pairs_seen = 0
+            tokens_too_old = 0
+            tokens_invalid_ts = 0
+            age_distribution = []
 
             for query in search_queries:
                 try:
@@ -208,13 +403,14 @@ class LaunchTracker:
                                     if pair.get('chainId') != 'solana':
                                         continue
 
-                                    # Only Raydium DEX
-                                    dex_id = pair.get('dexId', '')
-                                    if 'raydium' not in dex_id.lower():
+                                    # Accept multiple DEXes for fresh token discovery
+                                    dex_id = pair.get('dexId', '').lower()
+                                    if not any(valid in dex_id for valid in VALID_DEXES):
                                         continue
 
                                     base_token = pair.get('baseToken', {})
                                     mint = base_token.get('address', '')
+                                    symbol = base_token.get('symbol', '???')
 
                                     if not mint or mint in seen_mints:
                                         continue
@@ -224,33 +420,54 @@ class LaunchTracker:
                                     if not pair_created_at:
                                         continue
 
-                                    launch_time = datetime.fromtimestamp(pair_created_at / 1000)
-                                    age_hours = (now - launch_time).total_seconds() / 3600
-
-                                    if age_hours > self.max_age_hours or age_hours < 0:
+                                    # Use new timestamp parser with validation
+                                    launch_time = self._parse_timestamp(pair_created_at, symbol)
+                                    if not launch_time:
                                         continue
 
-                                    symbol = base_token.get('symbol', '???')
+                                    age_hours = self._calculate_age_hours(launch_time)
+
+                                    # Debug logging for filtered tokens
+                                    if self.debug_timestamps and age_hours > self.max_age_hours:
+                                        logger.debug(
+                                            f"Filtered {symbol}: age={age_hours:.1f}h > max={self.max_age_hours}h"
+                                        )
+
+                                    total_pairs_seen += 1
+                                    age_distribution.append(age_hours)
+
+                                    if age_hours > self.max_age_hours:
+                                        tokens_too_old += 1
+                                        continue
+
                                     name = base_token.get('name', 'Unknown')
+
+                                    # Track if on Raydium (graduated)
+                                    is_graduated = 'raydium' in dex_id
 
                                     token = FreshToken(
                                         address=mint,
                                         symbol=symbol,
                                         name=name,
                                         launch_time=launch_time,
-                                        pump_graduated='raydium' in dex_id.lower(),
-                                        migration_detected=True,
-                                        migration_time=launch_time,
+                                        pump_graduated=is_graduated,
+                                        migration_detected=is_graduated,
+                                        migration_time=launch_time if is_graduated else None,
                                         hours_since_migration=age_hours,
                                     )
                                     tokens.append(token)
                                     fresh_from_query += 1
+
+                                    # Log fresh token found with DEX
+                                    logger.info(f"    FRESH: {symbol} - {age_hours:.1f}h old ({dex_id})")
 
                                 except Exception as e:
                                     logger.debug(f"Error parsing pair: {e}")
 
                             if fresh_from_query > 0:
                                 logger.info(f"  Found {fresh_from_query} fresh tokens from '{query}' search")
+                            else:
+                                logger.debug(f"  No fresh tokens from '{query}' (all too old)")
 
                     await asyncio.sleep(0.3)  # Rate limiting between queries
 
@@ -260,7 +477,38 @@ class LaunchTracker:
         # Sort by launch time (newest first)
         tokens.sort(key=lambda t: t.launch_time, reverse=True)
 
-        logger.info(f"Total: Found {len(tokens)} fresh tokens (0-{self.max_age_hours}h) via DexScreener")
+        # Log age distribution summary
+        if age_distribution:
+            age_distribution.sort()
+            min_age = min(age_distribution)
+            max_age = max(age_distribution)
+            median_age = age_distribution[len(age_distribution) // 2]
+
+            logger.info(f"\n📊 TOKEN AGE ANALYSIS:")
+            logger.info(f"  Pairs analyzed: {total_pairs_seen}")
+            logger.info(f"  Fresh (0-{self.max_age_hours}h): {len(tokens)}")
+            logger.info(f"  Too old (>{self.max_age_hours}h): {tokens_too_old}")
+            logger.info(f"  Invalid timestamp: {tokens_invalid_ts}")
+            logger.info(f"  Age range: {min_age:.1f}h - {max_age:.1f}h")
+            logger.info(f"  Median age: {median_age:.1f}h")
+
+            # Show age buckets
+            buckets = {'0-1h': 0, '1-6h': 0, '6-24h': 0, '24-72h': 0, '>72h': 0}
+            for age in age_distribution:
+                if age <= 1:
+                    buckets['0-1h'] += 1
+                elif age <= 6:
+                    buckets['1-6h'] += 1
+                elif age <= 24:
+                    buckets['6-24h'] += 1
+                elif age <= 72:
+                    buckets['24-72h'] += 1
+                else:
+                    buckets['>72h'] += 1
+
+            logger.info(f"  Age distribution: {buckets}")
+
+        logger.info(f"\nTotal: Found {len(tokens)} fresh tokens (0-{self.max_age_hours}h) via DexScreener")
 
         return tokens
 
@@ -284,14 +532,19 @@ class LaunchTracker:
                         if not pair_created_at:
                             return None
 
-                        launch_time = datetime.fromtimestamp(pair_created_at / 1000)
-                        now = datetime.now()
-                        age_hours = (now - launch_time).total_seconds() / 3600
-
                         base_token = pair.get('baseToken', {})
+                        symbol = base_token.get('symbol', '???')
+
+                        # Use new timestamp parser
+                        launch_time = self._parse_timestamp(pair_created_at, symbol)
+                        if not launch_time:
+                            return None
+
+                        age_hours = self._calculate_age_hours(launch_time)
+
                         return FreshToken(
                             address=mint,
-                            symbol=base_token.get('symbol', '???'),
+                            symbol=symbol,
                             name=base_token.get('name', 'Unknown'),
                             launch_time=launch_time,
                             pump_graduated=True,
@@ -307,8 +560,11 @@ class LaunchTracker:
         """Check if token is within fresh window."""
         if not token or not token.launch_time:
             return False
-        age_hours = (now - token.launch_time).total_seconds() / 3600
-        return 0 <= age_hours <= self.max_age_hours
+        age_hours = self._calculate_age_hours(token.launch_time)
+        is_fresh = age_hours <= self.max_age_hours
+        if self.debug_timestamps and not is_fresh:
+            logger.debug(f"Token {token.symbol} not fresh: age={age_hours:.1f}h")
+        return is_fresh
 
     async def _scan_pumpfun_graduated(self) -> List[FreshToken]:
         """
@@ -359,15 +615,20 @@ class LaunchTracker:
                                     if not pair_created_at:
                                         continue
 
-                                    launch_time = datetime.fromtimestamp(pair_created_at / 1000)
-                                    age_hours = (now - launch_time).total_seconds() / 3600
-
-                                    # Only fresh migrations (0-6h)
-                                    if age_hours > 6 or age_hours < 0:
-                                        continue
-
                                     base_token = pair.get('baseToken', {})
                                     mint = base_token.get('address', '')
+                                    symbol = base_token.get('symbol', '???')
+
+                                    # Use new timestamp parser
+                                    launch_time = self._parse_timestamp(pair_created_at, symbol)
+                                    if not launch_time:
+                                        continue
+
+                                    age_hours = self._calculate_age_hours(launch_time)
+
+                                    # Only fresh migrations (0-6h)
+                                    if age_hours > 6:
+                                        continue
 
                                     # Skip if already in fresh_tokens
                                     if mint in self.fresh_tokens:

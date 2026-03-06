@@ -15,6 +15,7 @@ from telegram.constants import ParseMode
 
 from config.settings import (
     HELIUS_API_KEY,
+    HELIUS_MONITORING_KEYS,
     HELIUS_PREMIUM_KEY,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHANNEL_ID,
@@ -286,10 +287,13 @@ class InsiderTracker:
 class RealTimeBot:
     """
     Real-time monitoring bot.
-    - Polls Helius for new transactions
+    - Polls Helius for new transactions using MONITORING_KEYS pool (3 keys)
     - Only alerts on BUY transactions
     - Filters by transaction age and amount
     - Auto-monitors INSIDER wallets with special alerts
+
+    API Keys: Uses helius_premium_rotator which rotates through HELIUS_MONITORING_KEYS
+    (3 dedicated keys for real-time monitoring, separate from cron job keys)
     """
 
     def __init__(self):

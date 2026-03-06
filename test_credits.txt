@@ -1,0 +1,4 @@
+Claude Code credits test - timestamp: 2026-03-03 17:15:00 UTC
+
+Test successful - credits are available.
+Ready to fix monitoring bugs.

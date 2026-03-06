@@ -1,11 +1,13 @@
 """
 Helius API Integration
 Transaction history fetching and websocket monitoring
-With API key rotation for 4x capacity (400 req/sec)
+With API key rotation for maximum throughput
 
-KEY POOLS:
-- FREE keys: For background jobs (pipeline, insider detection, cluster analysis)
-- PREMIUM key: For real-time monitoring only (60-sec polling, buy alerts)
+KEY POOLS (configured in config/settings.py):
+- MONITORING_KEYS (3 keys): Real-time buy alert monitoring (realtime_bot.py)
+- CRON_KEYS (10 keys): Background jobs (pipeline, insider, cluster, cleanup)
+
+Total capacity: 13 keys = ~1300 req/sec (100 req/sec per key)
 """
 import asyncio
 import json
@@ -19,6 +21,7 @@ from config.settings import (
     HELIUS_API_KEY,
     HELIUS_API_KEYS,
     HELIUS_FREE_KEYS,
+    HELIUS_MONITORING_KEYS,
     HELIUS_PREMIUM_KEY,
     HELIUS_RPC_URL,
     HELIUS_WS_URL,
@@ -42,16 +45,18 @@ class HeliusRotator:
 
         Args:
             api_keys: List of API keys to rotate through
-            use_premium: If True, use only the premium key (no rotation)
+            use_premium: If True, use MONITORING keys pool (3 keys for real-time)
         """
         self.use_premium = use_premium
 
         if use_premium:
-            self.api_keys = [HELIUS_PREMIUM_KEY]
-            logger.info("HeliusRotator initialized with PREMIUM key (real-time mode)")
+            # Use all 3 monitoring keys for real-time buy alerts
+            self.api_keys = HELIUS_MONITORING_KEYS
+            logger.info(f"HeliusRotator initialized with {len(self.api_keys)} MONITORING keys (real-time mode)")
         else:
+            # Use all 10 cron keys for background jobs
             self.api_keys = api_keys or HELIUS_FREE_KEYS
-            logger.info(f"HeliusRotator initialized with {len(self.api_keys)} FREE keys")
+            logger.info(f"HeliusRotator initialized with {len(self.api_keys)} CRON keys (background mode)")
 
         self.current_index = 0
         self.request_counts: Dict[str, int] = {key: 0 for key in self.api_keys}
@@ -122,11 +127,16 @@ class HeliusRotator:
         }
 
 
-# Global rotator instances
-# FREE rotator - for background jobs (pipeline, insider detection, cluster analysis)
+# =============================================================================
+# Global rotator instances (separate pools for different workloads)
+# =============================================================================
+
+# CRON rotator (10 keys) - for background jobs
+# Used by: pipeline, insider detection, cluster analysis, cleanup, holder detection
 helius_rotator = HeliusRotator(use_premium=False)
 
-# PREMIUM rotator - for real-time monitoring only
+# MONITORING rotator (3 keys) - for real-time buy alert monitoring
+# Used by: realtime_bot.py polling loop (30-second intervals)
 helius_premium_rotator = HeliusRotator(use_premium=True)
 
 

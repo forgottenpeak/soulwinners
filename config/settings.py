@@ -81,6 +81,7 @@ HELIUS_PREMIUM_RPC_URL = f"https://mainnet.helius-rpc.com/?api-key={HELIUS_PREMI
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8483614914:AAFjwtH2pct_OdZgi4zrcPNKq6zWdb62ypQ")
 TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID", "-1003534177506")
 TELEGRAM_CHANNEL_NAME = "@TopwhaleTracker"
+TELEGRAM_USER_ID = int(os.getenv("TELEGRAM_USER_ID", "1153491543"))  # Admin user for DM alerts
 
 # Database
 DATABASE_PATH = DATA_DIR / "soulwinners.db"

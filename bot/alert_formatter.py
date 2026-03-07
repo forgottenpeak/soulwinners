@@ -215,13 +215,13 @@ class AlertFormatter:
         high_count = smart_money.get('high', 0)
         total_smart = smart_money.get('total', elite_count + high_count)
 
-        # Truncate wallet for privacy (5+5 chars)
+        # TRUNCATE wallet for public channel (privacy)
         if wallet_address and len(wallet_address) > 12:
             wallet_truncated = f"{wallet_address[:5]}...{wallet_address[-5:]}"
         else:
             wallet_truncated = wallet_address or "Unknown"
 
-        # Build message - show truncated wallet for privacy
+        # Build message - truncated wallet for public (use /wallet to reveal)
         message = f"""{tier_emoji} {tier.upper()} WALLET BUY {tier_emoji}
 ⏰ Bought {time_ago}
 👛 Wallet: `{wallet_truncated}`
@@ -247,7 +247,7 @@ class AlertFormatter:
 ├─ 🟢 {high_count} High-Quality wallets holding
 └─ Total smart money: {total_smart} wallets
 
-🔗 [DexScreener](https://dexscreener.com/solana/{token_address}) | [Birdeye](https://birdeye.so/token/{token_address}?chain=solana) | [Solscan](https://solscan.io/token/{token_address})"""
+🔗 [DexScreener](https://dexscreener.com/solana/{token_address}) | [Birdeye](https://birdeye.so/token/{token_address}?chain=solana) | [Token](https://solscan.io/token/{token_address}) | [Wallet](https://solscan.io/account/{wallet_address})"""
 
         # Add aggregate wallet performance stats
         if recent_trades and len(recent_trades) > 0:

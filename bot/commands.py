@@ -273,6 +273,11 @@ class CommandBot:
             pass
 
         user_id = update.effective_user.id
+
+        # Set personalized command menu FIRST (before checking auth for message)
+        await self.set_user_menu(user_id)
+        logger.info(f"Menu set for user {user_id}")
+
         is_admin = self._is_admin(user_id)
         is_authorized = self._is_authorized_trader(user_id)
 
@@ -354,9 +359,6 @@ Contact admin to request access.
 """
 
         await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
-
-        # Set personalized command menu for this user
-        await self.set_user_menu(user_id)
 
     async def cmd_pool(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show all qualified wallets ranked by Buy Efficiency Score (BES)."""

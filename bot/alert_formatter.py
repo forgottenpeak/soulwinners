@@ -1,16 +1,21 @@
 """
 Alert Formatter - CORRECT format with token metrics
 With LIVE balance fetching from Helius API
+With SoulScanner buttons and Win Milestone alerts
 """
 import asyncio
 import aiohttp
 import logging
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from config.settings import HELIUS_FREE_KEYS
 
 logger = logging.getLogger(__name__)
+
+# SoulScanner bot link
+SOULSCANNER_BOT = "https://t.me/SoulScannerBot?start="
 
 
 async def fetch_live_balance(wallet_address: str) -> Optional[float]:
@@ -374,3 +379,118 @@ class AlertFormatter:
             return f"{int(diff / 86400)}d ago"
         else:
             return f"{int(diff / 604800)}w ago"
+
+    def get_buy_alert_buttons(self, token_address: str) -> InlineKeyboardMarkup:
+        """Generate inline buttons for BUY alerts (qualified, insider, watchlist)."""
+        buttons = [
+            [
+                InlineKeyboardButton(
+                    "🔒 CA ↗",
+                    url=f"https://solscan.io/token/{token_address}"
+                ),
+                InlineKeyboardButton(
+                    "👁 Scan ↗",
+                    url=f"{SOULSCANNER_BOT}{token_address}"
+                ),
+            ]
+        ]
+        return InlineKeyboardMarkup(buttons)
+
+    def format_win_milestone_alert(
+        self,
+        token_symbol: str,
+        token_address: str,
+        multiplier: float,
+        entry_mcap: float,
+        current_mcap: float,
+        next_alert_link: str = None
+    ) -> Tuple[str, InlineKeyboardMarkup]:
+        """
+        Format a WIN MILESTONE alert when token reaches 2x+ profit.
+
+        Args:
+            token_symbol: Token symbol (e.g., "PEPE")
+            token_address: Token contract address
+            multiplier: Current multiplier (e.g., 5.2 for 5.2x)
+            entry_mcap: Market cap at entry
+            current_mcap: Current market cap
+            next_alert_link: Link to original buy alert message
+
+        Returns:
+            Tuple of (message_text, inline_keyboard)
+        """
+        # Format multiplier display
+        if multiplier >= 100:
+            mult_display = f"{int(multiplier)}x"
+        elif multiplier >= 10:
+            mult_display = f"{multiplier:.1f}x"
+        else:
+            mult_display = f"{multiplier:.1f}x"
+
+        # Generate money bag emoji rows based on multiplier
+        emoji_rows = self._get_money_emoji_rows(multiplier)
+
+        # Format market caps
+        entry_mcap_str = format_number(entry_mcap)
+        current_mcap_str = format_number(current_mcap)
+
+        # Build message
+        message = f"""📈 ${token_symbol} is up {mult_display} 📈
+from ⚡ Entry Signal
+
+{entry_mcap_str} → {current_mcap_str}
+
+{emoji_rows}"""
+
+        # Build buttons
+        buttons = [
+            [
+                InlineKeyboardButton(
+                    "🔒 CA ↗",
+                    url=f"https://solscan.io/token/{token_address}"
+                ),
+                InlineKeyboardButton(
+                    "👁 Scan ↗",
+                    url=f"{SOULSCANNER_BOT}{token_address}"
+                ),
+            ]
+        ]
+
+        # Add "Next" button if we have a link to the original alert
+        if next_alert_link:
+            buttons[0].append(
+                InlineKeyboardButton(
+                    "🔑 Next ↗",
+                    url=next_alert_link
+                )
+            )
+
+        keyboard = InlineKeyboardMarkup(buttons)
+
+        return message, keyboard
+
+    def _get_money_emoji_rows(self, multiplier: float) -> str:
+        """
+        Generate money bag emoji rows based on multiplier.
+
+        Scaling:
+        - 2x-5x: 1 row (10 💸)
+        - 5x-10x: 2 rows (20 💸)
+        - 10x-20x: 3 rows (30 💸)
+        - 20x-50x: 4 rows (40 💸)
+        - 50x+: 5 rows (50 💸)
+        """
+        row = "💸" * 10
+
+        if multiplier < 5:
+            num_rows = 1
+        elif multiplier < 10:
+            num_rows = 2
+        elif multiplier < 20:
+            num_rows = 3
+        elif multiplier < 50:
+            num_rows = 4
+        else:
+            num_rows = 5
+
+        return "\n".join([row] * num_rows)

@@ -260,10 +260,20 @@ class CommandBot:
 
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Welcome message based on user authorization level."""
-        logger.info(f"Start command received from {update.effective_user.id} in {update.effective_chat.type}")
+        user_id = update.effective_user.id
+        logger.info(f"Start command received from {user_id} in {update.effective_chat.type}")
+
         if not self._is_private(update):
             logger.warning("Start command rejected: not private chat")
             return
+
+        # Set personalized command menu FIRST
+        logger.info(f"Attempting to set menu for user {user_id}")
+        try:
+            await update_user_menu(context.bot, user_id)
+            logger.info(f"Successfully set menu for user {user_id}")
+        except Exception as e:
+            logger.error(f"Failed to set menu for user {user_id}: {e}")
 
         # Load admin ID from file if exists
         try:
@@ -271,12 +281,6 @@ class CommandBot:
                 self.admin_id = int(f.read().strip())
         except:
             pass
-
-        user_id = update.effective_user.id
-
-        # Set personalized command menu FIRST (before checking auth for message)
-        await self.set_user_menu(user_id)
-        logger.info(f"Menu set for user {user_id}")
 
         is_admin = self._is_admin(user_id)
         is_authorized = self._is_authorized_trader(user_id)
@@ -1471,47 +1475,47 @@ _Current status: {status}_"""
 
 🔍 **STEP 1: FIND WALLETS**
 Watch alerts in @TopwhaleTracker channel:
-• 🔥 Elite wallet bought $TOKEN
+• 🔥 Elite wallet bought TOKEN
 • 🎯 Insider wallet detected early entry
 • Study their win rate, ROI, strategy
 
 💼 **STEP 2: FUND YOUR WALLET**
-/deposit - Get your unique trading wallet
-Send SOL to this address (you control it)
-/balance - Check your funds
+/deposit \\- Get your unique trading wallet
+Send SOL to this address \\(you control it\\)
+/balance \\- Check your funds
 
 📋 **STEP 3: ADD TO WATCHLIST**
 When you see a good wallet in the channel:
-/add <wallet_address> - Add to watchlist
-/watchlist - View all watched wallets"""
+/add WALLET\\_ADDRESS \\- Add to watchlist
+/watchlist \\- View all watched wallets"""
 
                 msg2 = """🎯 **STEP 4: ENABLE COPY TRADING**
-/copylist - See your watchlist
-/enable <wallet> - Start auto-copying this wallet
-/disable <wallet> - Stop copying
+/copylist \\- See your watchlist
+/enable WALLET \\- Start auto\\-copying this wallet
+/disable WALLET \\- Stop copying
 
 ⚙️ **STEP 5: SET YOUR STRATEGY**
-/strategy - Configure your rules:
-• Buy amount per trade (e.g., 0.5 SOL)
-• Take profit target (e.g., +100%)
-• Stop loss protection (e.g., -10%)
-• Max trades per day (e.g., 10)
+/strategy \\- Configure your rules:
+• Buy amount per trade \\(e\\.g\\., 0\\.5 SOL\\)
+• Take profit target \\(e\\.g\\., \\+100%\\)
+• Stop loss protection \\(e\\.g\\., \\-10%\\)
+• Max trades per day \\(e\\.g\\., 10\\)
 
 Example: `/strategy 0.3 100 15 10`
 
 📊 **STEP 6: MONITOR PERFORMANCE**
-/positions - See your open trades
-/history - Past performance
-/report - Get AI strategy recommendations"""
+/positions \\- See your open trades
+/history \\- Past performance
+/report \\- Get AI strategy recommendations"""
 
                 msg3 = """⚠️ **IMPORTANT**
-• You choose which wallets to copy (from channel alerts)
+• You choose which wallets to copy \\(from channel alerts\\)
 • Bot only trades when YOUR selected wallets trade
 • Your funds stay in YOUR wallet
 • Withdraw anytime with /withdraw
 
 **💰 FEES**
-• 0.01 SOL per trade (auto-deducted)
+• 0\\.01 SOL per trade \\(auto\\-deducted\\)
 • No monthly fees, no hidden costs
 
 **🔗 USEFUL LINKS**
@@ -1532,66 +1536,66 @@ Example: `/strategy 0.3 100 15 10`
                     admin_msg = """**⚙️ ADMIN COMMANDS**
 
 **User Management:**
-/authorize <user_id> - Grant access
-/revoke <user_id> - Remove access
-/authorized - View authorized users
+/authorize USER\\_ID \\- Grant access
+/revoke USER\\_ID \\- Remove access
+/authorized \\- View authorized users
 
 **Fee Management:**
-/users - All users with balances
-/fees <user_id> - User's fees
-/totalfees - Total fees collected
-/transferfees - Transfer to owner
+/users \\- All users with balances
+/fees USER\\_ID \\- User's fees
+/totalfees \\- Total fees collected
+/transferfees \\- Transfer to owner
 
 **System:**
-/settings - Control panel
-/logs - View system logs
-/wallet - Reveal full wallet"""
+/settings \\- Control panel
+/logs \\- View system logs
+/wallet \\- Reveal full wallet"""
                     await update.message.reply_text(admin_msg, parse_mode=ParseMode.MARKDOWN)
 
             else:
                 # UNAUTHORIZED USER HELP
-                msg1 = """📖 **About SoulWinners Auto-Trader**
+                msg1 = """📖 **About SoulWinners Auto\\-Trader**
 
-This bot helps you copy-trade elite Solana wallets.
+This bot helps you copy\\-trade elite Solana wallets\\.
 
 🎯 **The Process:**
-1. Watch wallet buy alerts in @TopwhaleTracker
-2. Research wallets - check win rate, ROI, strategy
-3. Add good wallets to your personal watchlist
-4. Enable copy-trading for wallets you trust
-5. Bot automatically mirrors their trades
-6. AI analyzes your performance and suggests improvements"""
+1\\. Watch wallet buy alerts in @TopwhaleTracker
+2\\. Research wallets \\- check win rate, ROI, strategy
+3\\. Add good wallets to your personal watchlist
+4\\. Enable copy\\-trading for wallets you trust
+5\\. Bot automatically mirrors their trades
+6\\. AI analyzes your performance and suggests improvements"""
 
                 msg2 = """✨ **Features:**
-• **Manual wallet selection** - You're in control
-• **Customizable strategy** - Set buy amount, TP, SL
-• **Turbo-fast execution** - Better entries than manual
-• **AI-powered optimization** - Improve over time
-• **Your wallet, your funds** - Withdraw anytime
+• **Manual wallet selection** \\- You're in control
+• **Customizable strategy** \\- Set buy amount, TP, SL
+• **Turbo\\-fast execution** \\- Better entries than manual
+• **AI\\-powered optimization** \\- Improve over time
+• **Your wallet, your funds** \\- Withdraw anytime
 
-This is NOT auto-following random wallets.
-YOU decide which proven traders to copy.
+This is NOT auto\\-following random wallets\\.
+YOU decide which proven traders to copy\\.
 
 💰 **Fees:**
-• 0.01 SOL per trade
+• 0\\.01 SOL per trade
 • No monthly fees
 • No hidden costs"""
 
                 msg3 = """🔒 **Access Required**
 
-Auto-trader features require authorization.
-Contact admin to request access.
+Auto\\-trader features require authorization\\.
+Contact admin to request access\\.
 
 Once approved, you can:
 • Create your trading wallet
 • Add wallets to copy pool
 • Set your strategy parameters
-• Start auto-copying trades
+• Start auto\\-copying trades
 • Monitor performance
 • Get AI recommendations
 
 **Alerts Channel:** @TopwhaleTracker
-Watch alerts to find wallets worth copying!"""
+Watch alerts to find wallets worth copying\\!"""
 
                 await update.message.reply_text(msg1, parse_mode=ParseMode.MARKDOWN)
                 await update.message.reply_text(msg2, parse_mode=ParseMode.MARKDOWN)

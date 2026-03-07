@@ -34,7 +34,7 @@ from bot.utils import (
     parse_remove_index,
     is_valid_solana_address,
 )
-from bot.realtime_bot import get_wallet_from_alert_cache
+from bot.realtime_bot import get_wallet_from_alert_cache, get_wallet_from_truncated
 from utils.statistics import calculate_pool_robust_stats, robust_stats
 
 import pandas as pd
@@ -95,6 +95,9 @@ class CommandBot:
         self.application.add_handler(CommandHandler("clusters", self.cmd_clusters))
         self.application.add_handler(CommandHandler("early_birds", self.cmd_early_birds))
 
+        # Wallet lookup command (admin-only to reveal full addresses)
+        self.application.add_handler(CommandHandler("wallet", self.cmd_wallet))
+
         # Watchlist commands
         self.application.add_handler(CommandHandler("add", self.cmd_add_wallet))
         self.application.add_handler(CommandHandler("watchlist", self.cmd_watchlist))
@@ -154,7 +157,8 @@ class CommandBot:
             BotCommand("insiders", "Insider pool stats"),
             BotCommand("clusters", "Wallet clusters"),
 
-            # Premium
+            # Admin
+            BotCommand("wallet", "Reveal full wallet address"),
             BotCommand("premium", "Premium features info"),
             BotCommand("settings", "Bot settings"),
         ]
@@ -1483,6 +1487,7 @@ Buy alerts posted to channel when:
 /logs - View system logs
 /restart - Restart components
 /trader - Auto-trader status
+/wallet - Reveal full wallet from truncated
 
 _Watchlist alerts:_
 _• BUY: When they buy ≥1.5 SOL_
@@ -1777,6 +1782,108 @@ _Use buttons below to control cron job_"""
 
         except Exception as e:
             logger.error(f"Restart command failed: {e}")
+            await update.message.reply_text(f"Error: {e}")
+
+    async def cmd_wallet(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Reveal full wallet address from truncated format.
+        Admin-only command for privacy.
+
+        Usage:
+            /wallet 75ZGm...S4s9j  - Look up full address from truncated
+            /wallet (reply to alert) - Get full address from alert
+        """
+        if not self._is_private(update) or not self._is_admin(update.effective_user.id):
+            return
+
+        logger.info(f"Wallet lookup command from admin {update.effective_user.id}")
+
+        try:
+            # Method 1: Reply to an alert message
+            if update.message.reply_to_message:
+                reply_msg = update.message.reply_to_message
+                message_id = reply_msg.message_id
+
+                # Try to get from cache by message_id
+                full_wallet = get_wallet_from_alert_cache(message_id)
+
+                if full_wallet:
+                    await update.message.reply_text(
+                        f"🔓 **FULL WALLET ADDRESS**\n\n"
+                        f"👛 `{full_wallet}`\n\n"
+                        f"🔗 [Solscan](https://solscan.io/account/{full_wallet}) | "
+                        f"[Birdeye](https://birdeye.so/profile/{full_wallet}?chain=solana)",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    return
+                else:
+                    # Try to extract from message text
+                    text = reply_msg.text or reply_msg.caption or ""
+                    wallet = extract_wallet_from_text(text)
+                    if wallet and is_valid_solana_address(wallet):
+                        await update.message.reply_text(
+                            f"🔓 **WALLET ADDRESS**\n\n"
+                            f"👛 `{wallet}`\n\n"
+                            f"🔗 [Solscan](https://solscan.io/account/{wallet}) | "
+                            f"[Birdeye](https://birdeye.so/profile/{wallet}?chain=solana)",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                        return
+
+                    await update.message.reply_text(
+                        "❌ Could not find wallet address in that message.\n"
+                        "The alert may be too old (cache cleared)."
+                    )
+                    return
+
+            # Method 2: Provide truncated wallet as argument
+            if context.args and len(context.args) > 0:
+                truncated = context.args[0]
+
+                # Check if it's a truncated format (contains ...)
+                if "..." in truncated:
+                    full_wallet = get_wallet_from_truncated(truncated)
+
+                    if full_wallet:
+                        await update.message.reply_text(
+                            f"🔓 **FULL WALLET ADDRESS**\n\n"
+                            f"📍 Truncated: `{truncated}`\n"
+                            f"👛 Full: `{full_wallet}`\n\n"
+                            f"🔗 [Solscan](https://solscan.io/account/{full_wallet}) | "
+                            f"[Birdeye](https://birdeye.so/profile/{full_wallet}?chain=solana)",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    else:
+                        await update.message.reply_text(
+                            f"❌ Wallet `{truncated}` not found in cache.\n"
+                            "Try replying directly to the alert message instead."
+                        )
+                    return
+
+                # It might be a full wallet address already
+                elif is_valid_solana_address(truncated):
+                    await update.message.reply_text(
+                        f"✅ That's already a full wallet address!\n\n"
+                        f"👛 `{truncated}`\n\n"
+                        f"🔗 [Solscan](https://solscan.io/account/{truncated}) | "
+                        f"[Birdeye](https://birdeye.so/profile/{truncated}?chain=solana)",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    return
+
+            # Show usage
+            await update.message.reply_text(
+                "🔍 **WALLET LOOKUP**\n\n"
+                "Reveal full wallet address from truncated format.\n\n"
+                "**Usage:**\n"
+                "• `/wallet 75ZGm...S4s9j` - Look up by truncated\n"
+                "• Reply `/wallet` to an alert - Get from alert\n\n"
+                "_Admin-only command_",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        except Exception as e:
+            logger.error(f"Wallet lookup failed: {e}")
             await update.message.reply_text(f"Error: {e}")
 
     async def cmd_trader(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

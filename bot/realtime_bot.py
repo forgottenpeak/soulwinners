@@ -19,12 +19,12 @@ from config.settings import (
     HELIUS_PREMIUM_KEY,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHANNEL_ID,
+    TELEGRAM_USER_ID,
     DATABASE_PATH,
 )
 from database import get_connection
 from bot.alert_formatter import AlertFormatter
 from collectors.helius import helius_premium_rotator  # Use PREMIUM key for real-time
-from bot.utils import truncate_wallet
 
 logger = logging.getLogger(__name__)
 
@@ -35,20 +35,30 @@ MAX_TX_AGE_MINUTES = 5         # Only alert on transactions < 5 minutes old
 POLL_INTERVAL = 30             # Seconds between polling cycles
 MIN_LAST_5_WIN_RATE = 0.60     # 60% minimum win rate on last 5 closed trades
 
-# Admin user ID - sees full addresses
-ADMIN_USER_ID = 1153491543
+# Admin user ID - sees full addresses (from settings)
+ADMIN_USER_ID = TELEGRAM_USER_ID
 
 # Alert cache for /add command lookup
 # Stores message_id -> full wallet address
 ALERT_WALLET_CACHE: Dict[int, str] = {}
 ALERT_CACHE_MAX_SIZE = 500  # Keep last 500 alerts
 
+# Truncated wallet reverse lookup cache
+# Stores truncated (e.g., "75ZGm...S4s9j") -> full wallet address
+TRUNCATED_WALLET_CACHE: Dict[str, str] = {}
+TRUNCATED_CACHE_MAX_SIZE = 1000  # Keep last 1000 wallets
+
 
 def cache_alert_wallet(message_id: int, wallet_address: str):
     """Store mapping of message_id to full wallet address for /add command."""
-    global ALERT_WALLET_CACHE
+    global ALERT_WALLET_CACHE, TRUNCATED_WALLET_CACHE
 
     ALERT_WALLET_CACHE[message_id] = wallet_address
+
+    # Also cache truncated -> full mapping
+    if wallet_address and len(wallet_address) > 12:
+        truncated = f"{wallet_address[:5]}...{wallet_address[-5:]}"
+        TRUNCATED_WALLET_CACHE[truncated] = wallet_address
 
     # Clean up old entries if cache too large
     if len(ALERT_WALLET_CACHE) > ALERT_CACHE_MAX_SIZE:
@@ -57,12 +67,23 @@ def cache_alert_wallet(message_id: int, wallet_address: str):
         for key in keys_to_remove:
             del ALERT_WALLET_CACHE[key]
 
+    if len(TRUNCATED_WALLET_CACHE) > TRUNCATED_CACHE_MAX_SIZE:
+        # Remove oldest entries (first 200)
+        keys_to_remove = list(TRUNCATED_WALLET_CACHE.keys())[:200]
+        for key in keys_to_remove:
+            del TRUNCATED_WALLET_CACHE[key]
+
     logger.debug(f"Cached alert {message_id} -> {wallet_address[:12]}...")
 
 
 def get_wallet_from_alert_cache(message_id: int) -> Optional[str]:
     """Look up full wallet address from alert cache by message_id."""
     return ALERT_WALLET_CACHE.get(message_id)
+
+
+def get_wallet_from_truncated(truncated: str) -> Optional[str]:
+    """Look up full wallet address from truncated format (e.g., '75ZGm...S4s9j')."""
+    return TRUNCATED_WALLET_CACHE.get(truncated)
 
 
 class WatchlistPositionTracker:
@@ -653,12 +674,21 @@ class RealTimeBot:
         win_rate = insider_info.get('win_rate', 0) if insider_info else 0
         avg_roi = insider_info.get('avg_roi', 0) if insider_info else 0
 
-        # Get token info from DexScreener
+        # Get token info from DexScreener (now with extended metrics)
         token_info = await self._get_token_info(token_address)
         token_symbol = token_info.get('symbol', '???')
         token_name = token_info.get('name', 'Unknown')
         market_cap = token_info.get('market_cap', 0)
         liquidity = token_info.get('liquidity', 0)
+        volume_5m = token_info.get('volume_5m', 0)
+        volume_1h = token_info.get('volume_1h', 0)
+        volume_24h = token_info.get('volume_24h', 0)
+        holders = token_info.get('holders', 0)
+        token_age_hours = token_info.get('token_age_hours', 0)
+        buys_5m = token_info.get('buys_5m', 0)
+        sells_5m = token_info.get('sells_5m', 0)
+        price_change_5m = token_info.get('price_change_5m', 0)
+        price_change_1h = token_info.get('price_change_1h', 0)
 
         # Get SOL price
         sol_price = await self.price_service.get_sol_price()
@@ -674,14 +704,21 @@ class RealTimeBot:
         else:
             time_ago = f"{int(age_seconds / 3600)}h ago"
 
-        # Truncate wallet for display (admin sees full in /insiders)
-        wallet_display = f"{wallet_addr[:5]}...{wallet_addr[-5:]}"
+        # Format token age
+        if token_age_hours < 1:
+            age_str = f"{int(token_age_hours * 60)}m"
+        elif token_age_hours < 24:
+            age_str = f"{token_age_hours:.1f}h"
+        elif token_age_hours < 168:  # Less than a week
+            age_str = f"{token_age_hours / 24:.1f}d"
+        else:
+            age_str = f"{token_age_hours / 168:.1f}w"
 
         # Format confidence and win rate
         conf_pct = confidence * 100 if confidence <= 1 else confidence
         wr_pct = win_rate * 100 if win_rate <= 1 else win_rate
 
-        # Format market cap
+        # Format numbers
         def fmt_num(n):
             if n >= 1_000_000_000:
                 return f"${n/1_000_000_000:.1f}B"
@@ -691,26 +728,37 @@ class RealTimeBot:
                 return f"${n/1_000:.0f}K"
             return f"${n:.0f}"
 
-        # Build special INSIDER ALERT message
-        message = f"""🎯 **INSIDER ALERT** 🎯
+        # Build enhanced INSIDER ALERT message with FULL wallet address
+        message = f"""🎯🔥 **INSIDER ALERT** 🔥🎯
 ⏰ Bought {time_ago}
 
-🪙 **Token:** ${token_symbol} ({token_name})
+🪙 **${token_symbol}** ({token_name})
 📍 CA: `{token_address}`
-💰 Amount: {sol_amount:.2f} SOL (~${usd_value:.0f})
+💰 **{sol_amount:.2f} SOL** (~${usd_value:.0f})
 
 📊 **TOKEN METRICS:**
-├─ MC: {fmt_num(market_cap)}
-└─ Liq: {fmt_num(liquidity)}
+├─ 💹 MC: {fmt_num(market_cap)}
+├─ 💧 Liq: {fmt_num(liquidity)}
+├─ 👥 Holders: {holders if holders else 'N/A'}
+└─ ⏱️ Age: {age_str}
+
+📈 **VOLUME:**
+├─ 5m: {fmt_num(volume_5m)} ({price_change_5m:+.1f}%)
+├─ 1h: {fmt_num(volume_1h)} ({price_change_1h:+.1f}%)
+└─ 24h: {fmt_num(volume_24h)}
+
+🔄 **5m Activity:** {buys_5m} buys / {sells_5m} sells
 
 🕵️ **INSIDER PROFILE:**
-├─ Pattern: {pattern}
-├─ Confidence: {conf_pct:.0f}%
-├─ Win Rate: {wr_pct:.0f}%
-├─ Avg ROI: {avg_roi:+.0f}%
-└─ Wallet: `{wallet_display}`
+├─ 🎯 Pattern: {pattern}
+├─ 📊 Confidence: {conf_pct:.0f}%
+├─ ✅ Win Rate: {wr_pct:.0f}%
+└─ 💰 Avg ROI: {avg_roi:+.0f}%
+
+👛 **Wallet:** `{wallet_addr[:5]}...{wallet_addr[-5:]}`
 
 ⚠️ _Insider detected via launch/migration sniping_
+💡 _Reply /wallet to reveal full address (admin only)_
 
 🔗 [DexScreener](https://dexscreener.com/solana/{token_address}) | [Birdeye](https://birdeye.so/token/{token_address}?chain=solana)"""
 
@@ -785,17 +833,14 @@ class RealTimeBot:
                 except:
                     days_ago = added_date[:10]
 
-            # Format wallet based on user privilege
-            is_admin = (user_id == ADMIN_USER_ID)
-            if is_admin:
-                wallet_display = f"`{wallet_addr}`"
-            else:
-                wallet_display = truncate_wallet(wallet_addr)
+            # Always show FULL wallet address in watchlist DM alerts
+            wallet_display = f"`{wallet_addr}`"
 
-            # Build alert message
+            # Build alert message with full wallet
             message = f"""🔔 **WATCHLIST BUY**
 
-💰 {wallet_display} bought **{sol_amount:.2f} SOL** of **${token_symbol}**
+👛 Wallet: {wallet_display}
+💰 Bought **{sol_amount:.2f} SOL** of **${token_symbol}**
 
 📊 **Wallet Stats:**
 ├ Win Rate: {win_rate*100:.0f}%
@@ -805,7 +850,7 @@ class RealTimeBot:
 ├ Market Cap: ${token_info.get('market_cap', 0):,.0f}
 └ Liquidity: ${token_info.get('liquidity', 0):,.0f}
 
-[DexScreener](https://dexscreener.com/solana/{token_address})"""
+🔗 [DexScreener](https://dexscreener.com/solana/{token_address}) | [Wallet](https://solscan.io/account/{wallet_addr})"""
 
             if nickname:
                 message = message.replace("WATCHLIST BUY", f"WATCHLIST BUY ({nickname})")
@@ -872,18 +917,15 @@ class RealTimeBot:
             win_rate = sub.get('win_rate', 0)
             nickname = sub.get('nickname', '')
 
-            # Format wallet based on user privilege
-            is_admin = (user_id == ADMIN_USER_ID)
-            if is_admin:
-                wallet_display = f"`{wallet_addr}`"
-            else:
-                wallet_display = truncate_wallet(wallet_addr)
+            # Always show FULL wallet address in watchlist DM alerts
+            wallet_display = f"`{wallet_addr}`"
 
-            # Build alert message
+            # Build alert message with full wallet
             if position:
                 message = f"""📤 **WATCHLIST SELL**
 
-💰 {wallet_display} sold **${token_symbol}**
+👛 Wallet: {wallet_display}
+💰 Sold **${token_symbol}**
 
 📊 **Trade Result:**
 ├ Entry: {entry_sol:.2f} SOL
@@ -894,11 +936,12 @@ class RealTimeBot:
 📈 **Wallet Stats:**
 └ Win Rate: {win_rate*100:.0f}%
 
-[DexScreener](https://dexscreener.com/solana/{token_address})"""
+🔗 [DexScreener](https://dexscreener.com/solana/{token_address}) | [Wallet](https://solscan.io/account/{wallet_addr})"""
             else:
                 message = f"""📤 **WATCHLIST SELL**
 
-💰 {wallet_display} sold **{sol_amount:.2f} SOL** of **${token_symbol}**
+👛 Wallet: {wallet_display}
+💰 Sold **{sol_amount:.2f} SOL** of **${token_symbol}**
 
 📊 **Trade Result:**
 └ P/L: Entry not tracked (bought before monitoring)
@@ -906,7 +949,7 @@ class RealTimeBot:
 📈 **Wallet Stats:**
 └ Win Rate: {win_rate*100:.0f}%
 
-[DexScreener](https://dexscreener.com/solana/{token_address})"""
+🔗 [DexScreener](https://dexscreener.com/solana/{token_address}) | [Wallet](https://solscan.io/account/{wallet_addr})"""
 
             if nickname:
                 message = message.replace("WATCHLIST SELL", f"WATCHLIST SELL ({nickname})")
@@ -969,7 +1012,7 @@ class RealTimeBot:
             return None
 
     async def _get_token_info(self, token_address: str) -> Dict:
-        """Get token info with metrics from DexScreener."""
+        """Get token info with extended metrics from DexScreener."""
         try:
             url = f"https://api.dexscreener.com/tokens/v1/solana/{token_address}"
             async with aiohttp.ClientSession() as session:
@@ -981,34 +1024,86 @@ class RealTimeBot:
 
                             # Extract price changes
                             price_change = pair.get('priceChange', {})
+                            volume = pair.get('volume', {})
+                            txns = pair.get('txns', {})
+
+                            # Calculate token age from pairCreatedAt
+                            pair_created_at = pair.get('pairCreatedAt', 0)
+                            token_age_hours = 0
+                            if pair_created_at:
+                                age_seconds = datetime.now().timestamp() * 1000 - pair_created_at
+                                token_age_hours = max(0, age_seconds / (1000 * 3600))
+
+                            # Get holder count from info if available
+                            info = pair.get('info', {})
+                            holders = info.get('holders', 0)
+
+                            # Build chart preview URL
+                            pair_address = pair.get('pairAddress', '')
+                            chart_url = f"https://dexscreener.com/solana/{pair_address}" if pair_address else ''
+
+                            # Calculate buys/sells in 5m, 1h, 24h
+                            txns_m5 = txns.get('m5', {})
+                            txns_h1 = txns.get('h1', {})
+                            txns_h24 = txns.get('h24', {})
 
                             return {
                                 'address': token_address,
+                                'pair_address': pair_address,
                                 'name': pair.get('baseToken', {}).get('name', 'Unknown'),
                                 'symbol': pair.get('baseToken', {}).get('symbol', '???'),
-                                'image_url': pair.get('info', {}).get('imageUrl', ''),
+                                'image_url': info.get('imageUrl', ''),
                                 # Token metrics
                                 'market_cap': float(pair.get('marketCap', 0) or 0),
+                                'fdv': float(pair.get('fdv', 0) or 0),
                                 'liquidity': float(pair.get('liquidity', {}).get('usd', 0) or 0),
-                                'volume_1h': float(pair.get('volume', {}).get('h1', 0) or 0),
-                                'volume_24h': float(pair.get('volume', {}).get('h24', 0) or 0),
+                                # Volume at multiple timeframes
+                                'volume_5m': float(volume.get('m5', 0) or 0),
+                                'volume_1h': float(volume.get('h1', 0) or 0),
+                                'volume_24h': float(volume.get('h24', 0) or 0),
+                                # Price changes
+                                'price_change_5m': float(price_change.get('m5', 0) or 0),
                                 'price_change_1h': float(price_change.get('h1', 0) or 0),
                                 'price_change_24h': float(price_change.get('h24', 0) or 0),
+                                # Transaction counts
+                                'buys_5m': int(txns_m5.get('buys', 0) or 0),
+                                'sells_5m': int(txns_m5.get('sells', 0) or 0),
+                                'buys_1h': int(txns_h1.get('buys', 0) or 0),
+                                'sells_1h': int(txns_h1.get('sells', 0) or 0),
+                                'buys_24h': int(txns_h24.get('buys', 0) or 0),
+                                'sells_24h': int(txns_h24.get('sells', 0) or 0),
+                                # Extended info
+                                'holders': int(holders) if holders else 0,
+                                'token_age_hours': token_age_hours,
+                                'chart_url': chart_url,
                             }
         except Exception as e:
             logger.debug(f"Token info error: {e}")
 
         return {
             'address': token_address,
+            'pair_address': '',
             'name': 'Unknown',
             'symbol': '???',
             'image_url': '',
             'market_cap': 0,
+            'fdv': 0,
             'liquidity': 0,
+            'volume_5m': 0,
             'volume_1h': 0,
             'volume_24h': 0,
+            'price_change_5m': 0,
             'price_change_1h': 0,
             'price_change_24h': 0,
+            'buys_5m': 0,
+            'sells_5m': 0,
+            'buys_1h': 0,
+            'sells_1h': 0,
+            'buys_24h': 0,
+            'sells_24h': 0,
+            'holders': 0,
+            'token_age_hours': 0,
+            'chart_url': '',
         }
 
     async def _get_recent_trades(self, wallet_addr: str) -> List[Dict]:

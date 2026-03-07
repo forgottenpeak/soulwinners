@@ -239,3 +239,19 @@ CREATE INDEX IF NOT EXISTS idx_transactions_wallet ON transactions(wallet_addres
 CREATE INDEX IF NOT EXISTS idx_transactions_timestamp ON transactions(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_wallet ON alerts(wallet_address);
 CREATE INDEX IF NOT EXISTS idx_alerts_sent ON alerts(sent_at DESC);
+
+-- =============================================================================
+-- TABLE 10: USER WALLETS (Multi-user trading wallets)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS user_wallets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER UNIQUE NOT NULL,
+    deposit_address TEXT NOT NULL,
+    encrypted_private_key TEXT NOT NULL,
+    balance_sol REAL DEFAULT 0.0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_wallets_user ON user_wallets(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_wallets_address ON user_wallets(deposit_address);

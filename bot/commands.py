@@ -35,6 +35,7 @@ from bot.utils import (
     is_valid_solana_address,
 )
 from bot.realtime_bot import get_wallet_from_alert_cache, get_wallet_from_truncated
+from bot.trader_commands import register_trader_commands
 from utils.statistics import calculate_pool_robust_stats, robust_stats
 
 import pandas as pd
@@ -116,6 +117,9 @@ class CommandBot:
         # Initialize watchlist table
         self._init_watchlist_table()
 
+        # Register auto-trader commands
+        register_trader_commands(self.application)
+
         await self.application.initialize()
         await self.application.start()
         await self.application.updater.start_polling(drop_pending_updates=True)
@@ -161,6 +165,17 @@ class CommandBot:
             BotCommand("wallet", "Reveal full wallet address"),
             BotCommand("premium", "Premium features info"),
             BotCommand("settings", "Bot settings"),
+
+            # Auto-Trader commands
+            BotCommand("deposit", "Show deposit wallet & QR"),
+            BotCommand("balance", "Check trading wallet balance"),
+            BotCommand("strategy", "View/edit trading strategy"),
+            BotCommand("copylist", "View copy trading pool"),
+            BotCommand("positions", "View open positions"),
+            BotCommand("history", "View trade history"),
+            BotCommand("fees", "View fees paid"),
+            BotCommand("report", "Get AI strategy report"),
+            BotCommand("withdraw", "Withdraw from wallet"),
         ]
 
         try:

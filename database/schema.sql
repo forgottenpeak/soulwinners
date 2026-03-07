@@ -297,3 +297,31 @@ CREATE TABLE IF NOT EXISTS ai_reports (
 
 CREATE INDEX IF NOT EXISTS idx_ai_reports_user ON ai_reports(user_id);
 CREATE INDEX IF NOT EXISTS idx_ai_reports_created ON ai_reports(created_at DESC);
+
+-- =============================================================================
+-- TABLE 14: USER STRATEGIES (Auto-trader strategy settings per user)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS user_strategies (
+    user_id INTEGER PRIMARY KEY,
+    buy_amount_sol REAL DEFAULT 0.5,
+    take_profit_pct REAL DEFAULT 50.0,
+    stop_loss_pct REAL DEFAULT 10.0,
+    max_trades_day INTEGER DEFAULT 20,
+    auto_trade_enabled INTEGER DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
+-- TABLE 15: COPY POOL (Wallets enabled for copy trading per user)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS copy_pool (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    wallet_address TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, wallet_address)
+);
+
+CREATE INDEX IF NOT EXISTS idx_copy_pool_user ON copy_pool(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_strategies_user ON user_strategies(user_id);

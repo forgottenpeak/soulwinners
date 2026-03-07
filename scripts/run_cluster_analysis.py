@@ -23,9 +23,27 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def is_cron_enabled(cron_name: str) -> bool:
+    """Check if cron job is enabled in database."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT enabled FROM cron_states WHERE cron_name = ?", (cron_name,))
+        row = cursor.fetchone()
+        conn.close()
+        return bool(row[0]) if row else True
+    except:
+        return True
+
+
 async def main():
     """Run cluster analysis."""
     try:
+        # Check if enabled
+        if not is_cron_enabled('cluster_analysis'):
+            logger.info("CLUSTER ANALYSIS - SKIPPED (disabled in cron_states)")
+            return
+
         logger.info("=" * 60)
         logger.info("CLUSTER ANALYSIS - Starting")
         logger.info("=" * 60)

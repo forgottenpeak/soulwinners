@@ -31,8 +31,27 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def is_cron_enabled(cron_name: str) -> bool:
+    """Check if cron job is enabled in database."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT enabled FROM cron_states WHERE cron_name = ?", (cron_name,))
+        row = cursor.fetchone()
+        conn.close()
+        return bool(row[0]) if row else True
+    except:
+        return True
+
+
 async def run_pipeline(args):
     """Run the wallet collection pipeline."""
+    # Check if enabled (unless --force flag)
+    if not args.force and not is_cron_enabled('main_pipeline'):
+        print("MAIN PIPELINE - SKIPPED (disabled in cron_states)")
+        print("Use --force to run anyway")
+        return
+
     print("=" * 60)
     print("SOULWINNERS PIPELINE")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -123,6 +142,8 @@ def main():
                         help='Minimum win rate percent (default: 60)')
     parser.add_argument('--threshold-roi', type=float, default=50,
                         help='Minimum ROI percent (default: 50)')
+    parser.add_argument('--force', action='store_true',
+                        help='Run even if disabled in cron_states')
 
     args = parser.parse_args()
 

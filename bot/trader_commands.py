@@ -62,8 +62,10 @@ async def update_user_menu(bot: Bot, user_id: int):
     # Define command lists by role
     if is_admin:
         commands = [
+            # Core
             BotCommand("start", "Welcome message"),
             BotCommand("help", "How to use"),
+            # Auto-trader
             BotCommand("deposit", "Get deposit wallet"),
             BotCommand("balance", "Check balance"),
             BotCommand("strategy", "Set trading strategy"),
@@ -74,14 +76,35 @@ async def update_user_menu(bot: Bot, user_id: int):
             BotCommand("history", "Trade history"),
             BotCommand("report", "AI strategy report"),
             BotCommand("withdraw", "Withdraw funds"),
+            # Watchlist
+            BotCommand("add", "Add wallet to watchlist"),
+            BotCommand("watchlist", "View watchlist"),
+            BotCommand("remove", "Remove wallet from watchlist"),
+            BotCommand("summary", "Daily PnL summary"),
+            # Pool & Stats
+            BotCommand("pool", "Wallet leaderboard"),
+            BotCommand("leaderboard", "Top performers by ROI"),
+            BotCommand("stats", "Pool statistics"),
+            BotCommand("insiders", "Insider pool stats"),
+            BotCommand("clusters", "Wallet clusters"),
+            BotCommand("elite", "Top 5 performers"),
+            BotCommand("tiers", "Leaderboard by tier"),
+            BotCommand("recent", "Recent alerts"),
+            # Admin - User Management
             BotCommand("authorize", "Authorize user"),
             BotCommand("revoke", "Revoke user access"),
             BotCommand("authorized", "List authorized users"),
             BotCommand("users", "View all users"),
+            # Admin - Fees
             BotCommand("fees", "View user fees"),
             BotCommand("totalfees", "Total fees collected"),
             BotCommand("transferfees", "Transfer fees to owner"),
+            # Admin - System
+            BotCommand("settings", "Configure alerts"),
             BotCommand("wallet", "Reveal full wallet address"),
+            BotCommand("premium", "Premium features info"),
+            BotCommand("crons", "Cron job status"),
+            BotCommand("logs", "View system logs"),
         ]
     elif is_authorized:
         commands = [

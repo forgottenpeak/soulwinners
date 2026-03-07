@@ -112,6 +112,15 @@ class CommandBot:
         self.application.add_handler(CommandHandler("buttons", self.cmd_buttons))
         self.application.add_handler(CommandHandler("export", self.cmd_export))
 
+        # Cron control commands (admin-only)
+        self.application.add_handler(CommandHandler("crons", self.cmd_crons))
+        self.application.add_handler(CommandHandler("togglebuys", self.cmd_togglebuys))
+        self.application.add_handler(CommandHandler("toggleinsiders", self.cmd_toggleinsiders))
+        self.application.add_handler(CommandHandler("togglepipeline", self.cmd_togglepipeline))
+        self.application.add_handler(CommandHandler("toggleclusters", self.cmd_toggleclusters))
+        self.application.add_handler(CommandHandler("restartall", self.cmd_restartall))
+        self.application.add_handler(CommandHandler("stopall", self.cmd_stopall))
+
         # Register callback handler for inline buttons
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
 
@@ -1889,6 +1898,199 @@ _Use buttons below to control cron job_"""
         except Exception as e:
             logger.error(f"Restart command failed: {e}")
             await update.message.reply_text(f"Error: {e}")
+
+    # =========================================================================
+    # CRON CONTROL COMMANDS (Admin-only)
+    # =========================================================================
+
+    def _get_cron_state(self, cron_name: str) -> bool:
+        """Get enabled state for a cron job."""
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT enabled FROM cron_states WHERE cron_name = ?", (cron_name,))
+            row = cursor.fetchone()
+            conn.close()
+            return bool(row[0]) if row else True
+        except:
+            return True  # Default to enabled if error
+
+    def _set_cron_state(self, cron_name: str, enabled: bool) -> bool:
+        """Set enabled state for a cron job."""
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO cron_states (cron_name, enabled, last_updated)
+                VALUES (?, ?, datetime('now'))
+                ON CONFLICT(cron_name) DO UPDATE SET
+                    enabled = excluded.enabled,
+                    last_updated = datetime('now')
+            """, (cron_name, 1 if enabled else 0))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set cron state: {e}")
+            return False
+
+    async def cmd_crons(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show cron job status dashboard."""
+        if not self._is_private(update) or not self._is_admin(update.effective_user.id):
+            return
+
+        logger.info(f"Crons command received from user {update.effective_user.id}")
+
+        try:
+            # Get states for all crons
+            crons = {
+                'buy_alerts': self._get_cron_state('buy_alerts'),
+                'insider_detection': self._get_cron_state('insider_detection'),
+                'main_pipeline': self._get_cron_state('main_pipeline'),
+                'cluster_analysis': self._get_cron_state('cluster_analysis'),
+            }
+
+            def status_emoji(enabled: bool) -> str:
+                return "🟢" if enabled else "🔴"
+
+            def status_text(enabled: bool) -> str:
+                return "RUNNING" if enabled else "STOPPED"
+
+            message = f"""⚙️ **SoulWinners Cron Status**
+
+{status_emoji(crons['buy_alerts'])} **Buy Alerts** — {status_text(crons['buy_alerts'])}
+{status_emoji(crons['insider_detection'])} **Insider Detection** — {status_text(crons['insider_detection'])}
+{status_emoji(crons['main_pipeline'])} **Main Pipeline** — {status_text(crons['main_pipeline'])}
+{status_emoji(crons['cluster_analysis'])} **Cluster Analysis** — {status_text(crons['cluster_analysis'])}
+
+**Toggle Commands:**
+/togglebuys — Buy alert monitoring
+/toggleinsiders — Insider detection
+/togglepipeline — Main pipeline
+/toggleclusters — Cluster analysis
+
+**Emergency:**
+/restartall — Restart all jobs
+/stopall — Stop all jobs"""
+
+            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+
+        except Exception as e:
+            logger.error(f"Crons command failed: {e}")
+            await update.message.reply_text(f"Error: {e}")
+
+    async def cmd_togglebuys(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Toggle buy alert monitoring ON/OFF."""
+        if not self._is_private(update) or not self._is_admin(update.effective_user.id):
+            return
+
+        current = self._get_cron_state('buy_alerts')
+        new_state = not current
+        self._set_cron_state('buy_alerts', new_state)
+
+        emoji = "🟢" if new_state else "🔴"
+        status = "ENABLED" if new_state else "DISABLED"
+
+        await update.message.reply_text(
+            f"{emoji} Buy Alerts **{status}**\n\nTakes effect on next poll cycle.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        logger.info(f"Buy alerts toggled to {status} by admin")
+
+    async def cmd_toggleinsiders(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Toggle insider detection cron ON/OFF."""
+        if not self._is_private(update) or not self._is_admin(update.effective_user.id):
+            return
+
+        current = self._get_cron_state('insider_detection')
+        new_state = not current
+        self._set_cron_state('insider_detection', new_state)
+
+        emoji = "🟢" if new_state else "🔴"
+        status = "ENABLED" if new_state else "DISABLED"
+
+        await update.message.reply_text(
+            f"{emoji} Insider Detection **{status}**\n\nTakes effect on next cycle.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        logger.info(f"Insider detection toggled to {status} by admin")
+
+    async def cmd_togglepipeline(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Toggle main pipeline ON/OFF."""
+        if not self._is_private(update) or not self._is_admin(update.effective_user.id):
+            return
+
+        current = self._get_cron_state('main_pipeline')
+        new_state = not current
+        self._set_cron_state('main_pipeline', new_state)
+
+        emoji = "🟢" if new_state else "🔴"
+        status = "ENABLED" if new_state else "DISABLED"
+
+        await update.message.reply_text(
+            f"{emoji} Main Pipeline **{status}**\n\nTakes effect on next cycle.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        logger.info(f"Main pipeline toggled to {status} by admin")
+
+    async def cmd_toggleclusters(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Toggle cluster analysis ON/OFF."""
+        if not self._is_private(update) or not self._is_admin(update.effective_user.id):
+            return
+
+        current = self._get_cron_state('cluster_analysis')
+        new_state = not current
+        self._set_cron_state('cluster_analysis', new_state)
+
+        emoji = "🟢" if new_state else "🔴"
+        status = "ENABLED" if new_state else "DISABLED"
+
+        await update.message.reply_text(
+            f"{emoji} Cluster Analysis **{status}**\n\nTakes effect on next cycle.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        logger.info(f"Cluster analysis toggled to {status} by admin")
+
+    async def cmd_restartall(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Restart all background jobs via systemctl."""
+        if not self._is_private(update) or not self._is_admin(update.effective_user.id):
+            return
+
+        logger.info(f"Restart all command received from admin {update.effective_user.id}")
+
+        await update.message.reply_text(
+            "🔄 **Restarting SoulWinners service...**\n\nBot will be back online shortly.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+        try:
+            # Run systemctl restart in background
+            import subprocess
+            subprocess.Popen(['systemctl', 'restart', 'soulwinners'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            logger.error(f"Failed to restart: {e}")
+            await update.message.reply_text(f"❌ Failed to restart: {e}")
+
+    async def cmd_stopall(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Emergency stop all background jobs."""
+        if not self._is_private(update) or not self._is_admin(update.effective_user.id):
+            return
+
+        logger.info(f"Stop all command received from admin {update.effective_user.id}")
+
+        # First disable all crons in database
+        for cron_name in ['buy_alerts', 'insider_detection', 'main_pipeline', 'cluster_analysis']:
+            self._set_cron_state(cron_name, False)
+
+        await update.message.reply_text(
+            "🔴 **All crons DISABLED**\n\n"
+            "Background jobs will stop on their next cycle.\n"
+            "Use /crons to verify status.\n"
+            "Use /toggleX commands to re-enable individual jobs.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        logger.info("All crons disabled by admin")
 
     async def cmd_wallet(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """

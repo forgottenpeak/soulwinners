@@ -40,6 +40,40 @@ class TraderCommands:
         """Check if user is admin."""
         return user_id == ADMIN_USER_ID
 
+    def _is_authorized(self, user_id: int) -> bool:
+        """Check if user is authorized for auto-trader access."""
+        # Admin always has access
+        if self._is_admin(user_id):
+            return True
+
+        # Check authorized_users table
+        try:
+            conn = sqlite3.connect(SOULWINNERS_DB)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT status FROM authorized_users
+                WHERE user_id = ? AND status = 'active'
+            """, (user_id,))
+            row = cursor.fetchone()
+            conn.close()
+            return row is not None
+        except Exception as e:
+            logger.error(f"Authorization check error: {e}")
+            return False
+
+    async def _check_auth(self, update: Update) -> bool:
+        """Check authorization and send error if not authorized."""
+        user_id = update.effective_user.id
+        if not self._is_authorized(user_id):
+            await update.message.reply_text(
+                "🔒 **Access Denied**\n\n"
+                "You are not authorized to use auto-trader features.\n"
+                "Contact admin to request access.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return False
+        return True
+
     def _init_trader_tables(self):
         """Initialize auto-trader specific tables."""
         conn = sqlite3.connect(SOULWINNERS_DB)
@@ -73,6 +107,16 @@ class TraderCommands:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_copy_pool_user ON copy_pool(user_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_strategies_user ON user_strategies(user_id)")
 
+        # Authorized users table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS authorized_users (
+                user_id INTEGER PRIMARY KEY,
+                authorized_by INTEGER NOT NULL,
+                authorized_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'active'
+            )
+        """)
+
         conn.commit()
         conn.close()
         logger.info("Trader tables initialized")
@@ -85,6 +129,9 @@ class TraderCommands:
         """
         /deposit - Show user's deposit wallet address and QR code
         """
+        if not await self._check_auth(update):
+            return
+
         user_id = update.effective_user.id
 
         try:
@@ -139,6 +186,9 @@ Funds available within ~30 seconds after confirmation.
         """
         /balance - Check SOL balance in trading wallet
         """
+        if not await self._check_auth(update):
+            return
+
         user_id = update.effective_user.id
 
         try:
@@ -178,6 +228,9 @@ Funds available within ~30 seconds after confirmation.
         /strategy - View or edit trading strategy
         Usage: /strategy [buy_amount] [take_profit] [stop_loss] [max_trades]
         """
+        if not await self._check_auth(update):
+            return
+
         user_id = update.effective_user.id
 
         conn = sqlite3.connect(SOULWINNERS_DB)
@@ -270,6 +323,9 @@ Example: `/strategy 0.3 100 15 10`
         """
         /copylist - View wallets in copy pool
         """
+        if not await self._check_auth(update):
+            return
+
         user_id = update.effective_user.id
 
         conn = sqlite3.connect(SOULWINNERS_DB)
@@ -322,6 +378,9 @@ Your watchlist wallets can be migrated:
         """
         /enable <wallet> - Enable wallet for copy trading
         """
+        if not await self._check_auth(update):
+            return
+
         user_id = update.effective_user.id
 
         if not context.args:
@@ -363,6 +422,9 @@ Your watchlist wallets can be migrated:
         """
         /disable <wallet> - Disable wallet from copy trading
         """
+        if not await self._check_auth(update):
+            return
+
         user_id = update.effective_user.id
 
         if not context.args:
@@ -403,6 +465,9 @@ Your watchlist wallets can be migrated:
         """
         /positions - View open trading positions
         """
+        if not await self._check_auth(update):
+            return
+
         user_id = update.effective_user.id
 
         if not OPENCLAW_DB.exists():
@@ -450,6 +515,9 @@ Your watchlist wallets can be migrated:
         """
         /history - View trade history (last 10 trades)
         """
+        if not await self._check_auth(update):
+            return
+
         user_id = update.effective_user.id
 
         if not OPENCLAW_DB.exists():
@@ -518,6 +586,9 @@ Your watchlist wallets can be migrated:
         """
         /fees - View total fees paid
         """
+        if not await self._check_auth(update):
+            return
+
         user_id = update.effective_user.id
 
         try:
@@ -546,6 +617,9 @@ Last trade: {fees['last_fee_at'] or 'N/A'}
         """
         /report - Get latest AI strategy report or request new one
         """
+        if not await self._check_auth(update):
+            return
+
         user_id = update.effective_user.id
 
         try:
@@ -604,6 +678,9 @@ Generated: {last_report['created_at']}
         """
         /withdraw <amount> <address> - Withdraw SOL from trading wallet
         """
+        if not await self._check_auth(update):
+            return
+
         user_id = update.effective_user.id
 
         if len(context.args) < 2:
@@ -788,6 +865,168 @@ Reply with /confirm_withdraw to proceed.
             logger.error(f"Transferfees command error: {e}")
             await update.message.reply_text(f"Error: {str(e)}")
 
+    async def cmd_authorize(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        /authorize <user_id> - Grant auto-trader access to user (ADMIN ONLY)
+        """
+        admin_id = update.effective_user.id
+
+        if not self._is_admin(admin_id):
+            await update.message.reply_text("Admin only command.")
+            return
+
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: /authorize <user_id>\n"
+                "Example: /authorize 987654321"
+            )
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("Invalid user ID. Must be a number.")
+            return
+
+        conn = sqlite3.connect(SOULWINNERS_DB)
+        cursor = conn.cursor()
+
+        # Check if already authorized
+        cursor.execute("""
+            SELECT status FROM authorized_users WHERE user_id = ?
+        """, (target_user_id,))
+        row = cursor.fetchone()
+
+        if row and row[0] == 'active':
+            await update.message.reply_text(f"User {target_user_id} is already authorized.")
+            conn.close()
+            return
+
+        # Authorize user
+        cursor.execute("""
+            INSERT INTO authorized_users (user_id, authorized_by, status)
+            VALUES (?, ?, 'active')
+            ON CONFLICT(user_id) DO UPDATE SET
+                status = 'active',
+                authorized_by = ?,
+                authorized_at = CURRENT_TIMESTAMP
+        """, (target_user_id, admin_id, admin_id))
+
+        conn.commit()
+        conn.close()
+
+        await update.message.reply_text(
+            f"✅ **User Authorized**\n\n"
+            f"User ID: `{target_user_id}`\n"
+            f"Status: Active\n\n"
+            f"They can now use auto-trader commands.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        logger.info(f"User {target_user_id} authorized by admin {admin_id}")
+
+    async def cmd_revoke(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        /revoke <user_id> - Remove auto-trader access from user (ADMIN ONLY)
+        """
+        admin_id = update.effective_user.id
+
+        if not self._is_admin(admin_id):
+            await update.message.reply_text("Admin only command.")
+            return
+
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: /revoke <user_id>\n"
+                "Example: /revoke 987654321"
+            )
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("Invalid user ID. Must be a number.")
+            return
+
+        conn = sqlite3.connect(SOULWINNERS_DB)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE authorized_users
+            SET status = 'revoked'
+            WHERE user_id = ?
+        """, (target_user_id,))
+
+        if cursor.rowcount == 0:
+            await update.message.reply_text(f"User {target_user_id} was not authorized.")
+        else:
+            await update.message.reply_text(
+                f"❌ **Access Revoked**\n\n"
+                f"User ID: `{target_user_id}`\n"
+                f"Status: Revoked\n\n"
+                f"They can no longer use auto-trader commands.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            logger.info(f"User {target_user_id} access revoked by admin {admin_id}")
+
+        conn.commit()
+        conn.close()
+
+    async def cmd_authorized(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        /authorized - View list of authorized users (ADMIN ONLY)
+        """
+        admin_id = update.effective_user.id
+
+        if not self._is_admin(admin_id):
+            await update.message.reply_text("Admin only command.")
+            return
+
+        conn = sqlite3.connect(SOULWINNERS_DB)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT user_id, authorized_by, authorized_at, status
+            FROM authorized_users
+            ORDER BY authorized_at DESC
+        """)
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            await update.message.reply_text(
+                "👥 **Authorized Users**\n\n"
+                "No users authorized yet.\n\n"
+                "/authorize <user_id> - Grant access",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        active_count = sum(1 for r in rows if r[3] == 'active')
+        message = f"👥 **Authorized Users** ({active_count} active)\n\n"
+
+        for uid, auth_by, auth_at, status in rows:
+            emoji = "✅" if status == 'active' else "❌"
+            status_str = status.upper()
+
+            # Parse timestamp
+            try:
+                dt = datetime.fromisoformat(auth_at)
+                date_str = dt.strftime("%Y-%m-%d")
+            except:
+                date_str = str(auth_at)[:10] if auth_at else "Unknown"
+
+            message += f"{emoji} `{uid}` [{status_str}]\n"
+            message += f"   Added: {date_str}\n"
+
+        message += f"""
+━━━━━━━━━━━━━━━━━━━━━
+/authorize <user_id> - Grant access
+/revoke <user_id> - Remove access
+"""
+
+        await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+
     # =========================================================================
     # HELPER METHODS
     # =========================================================================
@@ -859,5 +1098,8 @@ def register_trader_commands(application):
     application.add_handler(CommandHandler("users", tc.cmd_users))
     application.add_handler(CommandHandler("totalfees", tc.cmd_totalfees))
     application.add_handler(CommandHandler("transferfees", tc.cmd_transferfees))
+    application.add_handler(CommandHandler("authorize", tc.cmd_authorize))
+    application.add_handler(CommandHandler("revoke", tc.cmd_revoke))
+    application.add_handler(CommandHandler("authorized", tc.cmd_authorized))
 
-    logger.info("Registered 14 trader commands")
+    logger.info("Registered 17 trader commands")

@@ -325,3 +325,13 @@ CREATE TABLE IF NOT EXISTS copy_pool (
 
 CREATE INDEX IF NOT EXISTS idx_copy_pool_user ON copy_pool(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_strategies_user ON user_strategies(user_id);
+
+-- =============================================================================
+-- TABLE 16: AUTHORIZED USERS (Users authorized for auto-trader access)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS authorized_users (
+    user_id INTEGER PRIMARY KEY,
+    authorized_by INTEGER NOT NULL,
+    authorized_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status TEXT DEFAULT 'active'
+);

@@ -32,9 +32,14 @@ OPENCLAW_DB = Path(__file__).parent.parent / "data" / "openclaw.db"
 
 async def update_user_menu(bot: Bot, user_id: int):
     """Set personalized command menu based on user role."""
-    # Check if user is authorized
+    logger.info(f"update_user_menu called for user_id={user_id}, ADMIN_USER_ID={ADMIN_USER_ID}")
+
+    # Check if user is admin
     is_admin = (user_id == ADMIN_USER_ID)
     is_authorized = False
+
+    # Debug: Log the comparison
+    logger.info(f"User {user_id} role: {'ADMIN' if is_admin else 'checking authorization...'}")
 
     if not is_admin:
         try:
@@ -46,8 +51,13 @@ async def update_user_menu(bot: Bot, user_id: int):
             )
             is_authorized = cursor.fetchone() is not None
             conn.close()
+            logger.info(f"User {user_id} authorization check: is_authorized={is_authorized}")
         except Exception as e:
             logger.error(f"Error checking authorization: {e}")
+
+    # Final role determination
+    role = 'ADMIN' if is_admin else 'AUTHORIZED' if is_authorized else 'UNAUTHORIZED'
+    logger.info(f"User {user_id} final role: {role}")
 
     # Define command lists by role
     if is_admin:
@@ -95,11 +105,11 @@ async def update_user_menu(bot: Bot, user_id: int):
         ]
 
     # Set menu for this specific user
+    logger.info(f"Setting {len(commands)} commands for user {user_id}")
     try:
         scope = BotCommandScopeChat(chat_id=user_id)
         await bot.set_my_commands(commands, scope=scope)
-        role = "admin" if is_admin else "authorized" if is_authorized else "default"
-        logger.info(f"Set {role} menu for user {user_id}")
+        logger.info(f"Successfully set {len(commands)} commands for user {user_id} (role={role})")
     except Exception as e:
         logger.error(f"Failed to set menu for user {user_id}: {e}")
 

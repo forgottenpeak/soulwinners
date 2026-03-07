@@ -335,3 +335,21 @@ CREATE TABLE IF NOT EXISTS authorized_users (
     authorized_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status TEXT DEFAULT 'active'
 );
+
+-- =============================================================================
+-- TABLE 17: WIN MILESTONES (Track profit milestones for alerts)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS win_milestones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_address TEXT NOT NULL,
+    wallet_address TEXT NOT NULL,
+    entry_mcap REAL NOT NULL,
+    milestone_x INTEGER NOT NULL,
+    current_mcap REAL,
+    alert_message_id INTEGER,
+    alerted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(token_address, wallet_address, milestone_x)
+);
+
+CREATE INDEX IF NOT EXISTS idx_win_milestones_token ON win_milestones(token_address);
+CREATE INDEX IF NOT EXISTS idx_win_milestones_wallet ON win_milestones(wallet_address);

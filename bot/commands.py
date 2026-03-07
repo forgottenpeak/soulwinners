@@ -1514,9 +1514,10 @@ Example: `/strategy 0.3 100 15 10`
 • Your funds stay in YOUR wallet
 • Withdraw anytime with /withdraw
 
-**💰 FEES**
-• 0\\.01 SOL per trade \\(auto\\-deducted\\)
-• No monthly fees, no hidden costs
+**📊 AI STRATEGY REPORTS**
+• AI analyzes your performance every 3 days
+• Suggests strategy improvements
+• Premium feature \\(contact admin for access\\)
 
 **🔗 USEFUL LINKS**
 • Alerts: @TopwhaleTracker
@@ -1525,7 +1526,7 @@ Example: `/strategy 0.3 100 15 10`
 **ALL COMMANDS**
 /deposit /balance /strategy /copylist
 /enable /disable /positions /history
-/report /withdraw /add /watchlist /summary"""
+/report /withdraw"""
 
                 await update.message.reply_text(msg1, parse_mode=ParseMode.MARKDOWN)
                 await update.message.reply_text(msg2, parse_mode=ParseMode.MARKDOWN)
@@ -1576,10 +1577,10 @@ This bot helps you copy\\-trade elite Solana wallets\\.
 This is NOT auto\\-following random wallets\\.
 YOU decide which proven traders to copy\\.
 
-💰 **Fees:**
-• 0\\.01 SOL per trade
-• No monthly fees
-• No hidden costs"""
+**📊 AI STRATEGY REPORTS**
+• AI analyzes your performance every 3 days
+• Suggests strategy improvements
+• Premium feature \\(contact admin for access\\)"""
 
                 msg3 = """🔒 **Access Required**
 

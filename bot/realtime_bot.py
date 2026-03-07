@@ -2,15 +2,18 @@
 Real-Time Monitoring Bot
 - Monitors BUY transactions for qualified wallets (public channel)
 - Monitors BUY transactions for user watchlist wallets (personal DM alerts)
+- Win milestone alerts (2x, 3x, 5x, 10x, 20x, 50x, 100x)
+- SoulScanner buttons on all buy alerts
 - ONLY alerts on transactions < 5 minutes old
 - ONLY alerts if buy amount >= threshold (1 SOL qualified, 1.5 SOL watchlist)
 """
 import asyncio
 import logging
+import sqlite3
 from datetime import datetime
 from typing import Dict, List, Set, Optional
 import aiohttp
-from telegram import Bot
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 
 from config.settings import (
@@ -23,10 +26,13 @@ from config.settings import (
     DATABASE_PATH,
 )
 from database import get_connection
-from bot.alert_formatter import AlertFormatter
+from bot.alert_formatter import AlertFormatter, SOULSCANNER_BOT
 from collectors.helius import helius_premium_rotator  # Use PREMIUM key for real-time
 
 logger = logging.getLogger(__name__)
+
+# Win milestone thresholds
+WIN_MILESTONES = [2, 3, 5, 10, 20, 50, 100]
 
 # Configuration
 MIN_BUY_AMOUNT_SOL = 1.0       # Minimum 1 SOL for qualified wallet alerts
@@ -261,6 +267,102 @@ class PriceService:
         return self.sol_price
 
 
+class WinMilestoneTracker:
+    """Track buy entries and check for win milestones."""
+
+    def __init__(self):
+        # (wallet, token) -> {entry_mcap, message_id, alerted_milestones: set()}
+        self.entries: Dict[tuple, Dict] = {}
+
+    def record_entry(self, wallet_addr: str, token_addr: str, entry_mcap: float, message_id: int):
+        """Record a new buy entry for milestone tracking."""
+        key = (wallet_addr, token_addr)
+        self.entries[key] = {
+            'entry_mcap': entry_mcap,
+            'message_id': message_id,
+            'alerted_milestones': set(),
+        }
+        logger.debug(f"Recorded entry for milestone tracking: {wallet_addr[:8]}.../{token_addr[:8]}... at MC ${entry_mcap:,.0f}")
+
+    def check_milestone(self, wallet_addr: str, token_addr: str, current_mcap: float) -> Optional[Dict]:
+        """
+        Check if current mcap hits a new milestone.
+        Returns milestone info if new milestone reached, None otherwise.
+        """
+        key = (wallet_addr, token_addr)
+        entry = self.entries.get(key)
+
+        if not entry:
+            return None
+
+        entry_mcap = entry['entry_mcap']
+        if entry_mcap <= 0:
+            return None
+
+        multiplier = current_mcap / entry_mcap
+        alerted = entry['alerted_milestones']
+
+        # Find highest unalerted milestone that's been reached
+        for milestone in reversed(WIN_MILESTONES):
+            if multiplier >= milestone and milestone not in alerted:
+                alerted.add(milestone)
+                self._save_milestone_to_db(wallet_addr, token_addr, entry_mcap, milestone, current_mcap)
+                return {
+                    'milestone': milestone,
+                    'multiplier': multiplier,
+                    'entry_mcap': entry_mcap,
+                    'current_mcap': current_mcap,
+                    'message_id': entry['message_id'],
+                }
+
+        return None
+
+    def _save_milestone_to_db(self, wallet_addr: str, token_addr: str,
+                               entry_mcap: float, milestone: int, current_mcap: float):
+        """Save milestone to database to prevent duplicate alerts."""
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR IGNORE INTO win_milestones
+                (token_address, wallet_address, entry_mcap, milestone_x, current_mcap)
+                VALUES (?, ?, ?, ?, ?)
+            """, (token_addr, wallet_addr, entry_mcap, milestone, current_mcap))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.warning(f"Failed to save milestone to DB: {e}")
+
+    def load_from_db(self):
+        """Load previously alerted milestones from database."""
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT wallet_address, token_address, entry_mcap, milestone_x, alert_message_id
+                FROM win_milestones
+                WHERE alerted_at > datetime('now', '-7 days')
+            """)
+            rows = cursor.fetchall()
+            conn.close()
+
+            for row in rows:
+                wallet, token, entry_mcap, milestone, msg_id = row
+                key = (wallet, token)
+                if key not in self.entries:
+                    self.entries[key] = {
+                        'entry_mcap': entry_mcap,
+                        'message_id': msg_id or 0,
+                        'alerted_milestones': set(),
+                    }
+                self.entries[key]['alerted_milestones'].add(milestone)
+
+            logger.info(f"Loaded {len(rows)} milestone records from database")
+
+        except Exception as e:
+            logger.warning(f"Failed to load milestones from DB: {e}")
+
+
 class InsiderTracker:
     """Track insider wallets from insider_pool for special alerts."""
 
@@ -328,10 +430,11 @@ class RealTimeBot:
         self.watchlist = WatchlistTracker()
         self.watchlist_positions = WatchlistPositionTracker()  # Track positions for sell P/L
         self.price_service = PriceService()
-        self.insider_tracker = InsiderTracker()  # NEW: Insider tracking
+        self.insider_tracker = InsiderTracker()  # Insider tracking
+        self.milestone_tracker = WinMilestoneTracker()  # Win milestone tracking
 
         self.qualified_wallets: Dict[str, Dict] = {}
-        self.insider_wallets: Set[str] = set()  # NEW: Insider wallet addresses
+        self.insider_wallets: Set[str] = set()  # Insider wallet addresses
         self.watchlist_wallets: Set[str] = set()  # Watchlist wallet addresses
         self.last_signatures: Dict[str, str] = {}  # wallet -> last seen signature
         self.running = False
@@ -367,6 +470,9 @@ class RealTimeBot:
         # Load insider wallets for special alerts
         self.insider_tracker.load_insider_wallets()
         self.insider_wallets = set(self.insider_tracker.insider_wallets.keys())
+
+        # Load win milestone history
+        self.milestone_tracker.load_from_db()
 
         logger.info(f"Loaded {len(self.qualified_wallets)} qualified wallets")
         logger.info(f"Loaded {len(self.watchlist_wallets)} watchlist wallets")
@@ -467,6 +573,87 @@ class RealTimeBot:
                 logger.warning(f"Error checking watchlist {wallet_addr[:15]}...: {e}")
 
         logger.info(f"📡 Poll cycle complete ({checked} wallets checked)")
+
+        # Check for win milestones on tracked entries
+        await self._check_win_milestones()
+
+    async def _check_win_milestones(self):
+        """Check all tracked entries for win milestones (2x, 3x, 5x, etc.)."""
+        entries = list(self.milestone_tracker.entries.items())
+
+        if not entries:
+            return
+
+        logger.debug(f"Checking {len(entries)} entries for win milestones...")
+
+        for (wallet_addr, token_addr), entry_data in entries:
+            try:
+                # Get current token info
+                token_info = await self._get_token_info(token_addr)
+                current_mcap = token_info.get('market_cap', 0)
+
+                if current_mcap <= 0:
+                    continue
+
+                # Check for milestone
+                milestone = self.milestone_tracker.check_milestone(
+                    wallet_addr, token_addr, current_mcap
+                )
+
+                if milestone:
+                    token_symbol = token_info.get('symbol', '???')
+                    await self._send_win_milestone_alert(
+                        token_symbol=token_symbol,
+                        token_address=token_addr,
+                        milestone_data=milestone
+                    )
+
+                # Rate limit
+                await asyncio.sleep(0.5)
+
+            except Exception as e:
+                logger.debug(f"Error checking milestone for {token_addr[:12]}...: {e}")
+
+    async def _send_win_milestone_alert(self, token_symbol: str, token_address: str, milestone_data: Dict):
+        """Send a WIN MILESTONE alert to the public channel."""
+        multiplier = milestone_data['multiplier']
+        entry_mcap = milestone_data['entry_mcap']
+        current_mcap = milestone_data['current_mcap']
+        original_msg_id = milestone_data.get('message_id', 0)
+
+        # Build link to original alert (if we have the message ID)
+        next_alert_link = None
+        if original_msg_id and self.channel_id:
+            # Channel links use the format: https://t.me/c/CHANNEL_ID/MESSAGE_ID
+            # For public channels: https://t.me/CHANNEL_NAME/MESSAGE_ID
+            channel_str = str(self.channel_id)
+            if channel_str.startswith('-100'):
+                channel_id_short = channel_str[4:]  # Remove -100 prefix
+                next_alert_link = f"https://t.me/c/{channel_id_short}/{original_msg_id}"
+
+        # Format the alert
+        message, keyboard = self.formatter.format_win_milestone_alert(
+            token_symbol=token_symbol,
+            token_address=token_address,
+            multiplier=multiplier,
+            entry_mcap=entry_mcap,
+            current_mcap=current_mcap,
+            next_alert_link=next_alert_link
+        )
+
+        logger.info(f"📈 WIN MILESTONE: ${token_symbol} hit {multiplier:.1f}x!")
+
+        try:
+            await self.bot.send_message(
+                chat_id=self.channel_id,
+                text=message,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard
+            )
+            logger.info(f"✅ WIN ALERT sent: ${token_symbol} {milestone_data['milestone']}x milestone")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to send win milestone alert: {e}")
 
     async def _check_wallet(self, wallet_addr: str, wallet_data: Optional[Dict],
                             is_watchlist: bool = False, is_insider: bool = False):
@@ -585,7 +772,7 @@ class RealTimeBot:
         await self._send_qualified_alert(wallet_addr, wallet_data, parsed)
 
     async def _send_qualified_alert(self, wallet_addr: str, wallet_data: Dict, parsed: Dict):
-        """Send alert to public channel for qualified wallet buys."""
+        """Send alert to public channel for qualified wallet buys with SoulScanner button."""
         token_address = parsed['token_address']
         sol_amount = parsed['sol_amount']
         tx_timestamp = parsed['timestamp']
@@ -624,6 +811,9 @@ class RealTimeBot:
             sol_price=sol_price
         )
 
+        # Get SoulScanner buttons for buy alerts
+        reply_markup = self.formatter.get_buy_alert_buttons(token_address)
+
         # Send to public channel
         logger.info(f"Sending qualified alert for {token_info.get('symbol')} ({sol_amount:.2f} SOL)...")
 
@@ -637,24 +827,34 @@ class RealTimeBot:
                         chat_id=self.channel_id,
                         photo=image_url,
                         caption=message,
-                        parse_mode=ParseMode.MARKDOWN
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=reply_markup
                     )
                 except Exception:
                     sent_message = await self.bot.send_message(
                         chat_id=self.channel_id,
                         text=message,
-                        parse_mode=ParseMode.MARKDOWN
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=reply_markup
                     )
             else:
                 sent_message = await self.bot.send_message(
                     chat_id=self.channel_id,
                     text=message,
-                    parse_mode=ParseMode.MARKDOWN
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=reply_markup
                 )
 
             # Cache message_id -> wallet for /add command lookup
             if sent_message:
                 cache_alert_wallet(sent_message.message_id, wallet_addr)
+
+                # Record entry for win milestone tracking
+                entry_mcap = token_info.get('market_cap', 0)
+                if entry_mcap > 0:
+                    self.milestone_tracker.record_entry(
+                        wallet_addr, token_address, entry_mcap, sent_message.message_id
+                    )
 
             logger.info(f"✅ QUALIFIED ALERT: {wallet_data.get('tier')} bought {token_info.get('symbol')} for {sol_amount:.2f} SOL")
 
@@ -762,6 +962,9 @@ class RealTimeBot:
 
 🔗 [DexScreener](https://dexscreener.com/solana/{token_address}) | [Birdeye](https://birdeye.so/token/{token_address}?chain=solana)"""
 
+        # Get SoulScanner buttons for buy alerts
+        reply_markup = self.formatter.get_buy_alert_buttons(token_address)
+
         # Send to public channel
         logger.info(f"🎯 Sending INSIDER alert for {token_symbol} ({sol_amount:.2f} SOL)...")
 
@@ -775,24 +978,33 @@ class RealTimeBot:
                         chat_id=self.channel_id,
                         photo=image_url,
                         caption=message,
-                        parse_mode=ParseMode.MARKDOWN
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=reply_markup
                     )
                 except Exception:
                     sent_message = await self.bot.send_message(
                         chat_id=self.channel_id,
                         text=message,
-                        parse_mode=ParseMode.MARKDOWN
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=reply_markup
                     )
             else:
                 sent_message = await self.bot.send_message(
                     chat_id=self.channel_id,
                     text=message,
-                    parse_mode=ParseMode.MARKDOWN
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=reply_markup
                 )
 
             # Cache message_id -> wallet for /add command lookup
             if sent_message:
                 cache_alert_wallet(sent_message.message_id, wallet_addr)
+
+                # Record entry for win milestone tracking
+                if market_cap > 0:
+                    self.milestone_tracker.record_entry(
+                        wallet_addr, token_address, market_cap, sent_message.message_id
+                    )
 
             logger.info(f"✅ INSIDER ALERT: {pattern} insider bought {token_symbol} for {sol_amount:.2f} SOL")
 
@@ -855,12 +1067,16 @@ class RealTimeBot:
             if nickname:
                 message = message.replace("WATCHLIST BUY", f"WATCHLIST BUY ({nickname})")
 
+            # Get SoulScanner buttons for buy alerts
+            reply_markup = self.formatter.get_buy_alert_buttons(token_address)
+
             try:
                 await self.bot.send_message(
                     chat_id=user_id,
                     text=message,
                     parse_mode=ParseMode.MARKDOWN,
-                    disable_web_page_preview=True
+                    disable_web_page_preview=True,
+                    reply_markup=reply_markup
                 )
                 logger.info(f"✅ Watchlist buy alert sent to user {user_id} for ${token_symbol}")
 

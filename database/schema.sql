@@ -282,3 +282,18 @@ CREATE TABLE IF NOT EXISTS fee_transfers (
     transferred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status TEXT DEFAULT 'pending'
 );
+
+-- =============================================================================
+-- TABLE 13: AI REPORTS (AI-generated trading strategy reports)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS ai_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    report_text TEXT,
+    suggestions_json TEXT,
+    trade_stats_json TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_reports_user ON ai_reports(user_id);
+CREATE INDEX IF NOT EXISTS idx_ai_reports_created ON ai_reports(created_at DESC);

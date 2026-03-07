@@ -255,3 +255,30 @@ CREATE TABLE IF NOT EXISTS user_wallets (
 
 CREATE INDEX IF NOT EXISTS idx_user_wallets_user ON user_wallets(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_wallets_address ON user_wallets(deposit_address);
+
+-- =============================================================================
+-- TABLE 11: FEE HISTORY (Trading fees collected from users)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS fee_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    trade_id INTEGER,
+    fee_amount_sol REAL NOT NULL,
+    collected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    tx_signature TEXT,
+    status TEXT DEFAULT 'collected'
+);
+
+CREATE INDEX IF NOT EXISTS idx_fee_history_user ON fee_history(user_id);
+CREATE INDEX IF NOT EXISTS idx_fee_history_status ON fee_history(status);
+
+-- =============================================================================
+-- TABLE 12: FEE TRANSFERS (Batch transfers to owner wallet)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS fee_transfers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    total_amount_sol REAL NOT NULL,
+    tx_signature TEXT,
+    transferred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status TEXT DEFAULT 'pending'
+);

@@ -17,6 +17,7 @@ from telegram.constants import ParseMode
 from .solana_dex import JupiterDEX
 from .position_manager import PositionManager, Position, PositionStatus
 from .strategy import TradingStrategy, StrategyConfig, ExitAction, SignalQueue
+from .fee_collector import collect_fee, FEE_PER_TRADE_SOL
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -42,7 +43,8 @@ class OpenClawTrader:
         telegram_token: Optional[str] = None,
         telegram_chat_id: Optional[str] = None,
         rpc_url: str = "https://api.mainnet-beta.solana.com",
-        starting_balance: float = 0.2  # ~$15 in SOL
+        starting_balance: float = 0.2,  # ~$15 in SOL
+        user_id: Optional[int] = None  # For fee collection
     ):
         # Load from env if not provided
         self.private_key = private_key or os.getenv('OPENCLAW_PRIVATE_KEY')
@@ -67,6 +69,7 @@ class OpenClawTrader:
         self.starting_balance = starting_balance
         self.current_balance = starting_balance
         self.sol_price = 78.0  # Updated periodically
+        self.user_id = user_id  # For fee collection
 
         # Initialize starting balance
         self.position_manager.set_starting_balance(starting_balance)
@@ -193,6 +196,14 @@ class OpenClawTrader:
                     entry_signature=result['signature']
                 )
 
+                # Collect trading fee
+                if self.user_id:
+                    fee_result = collect_fee(self.user_id, trade_id=position.id if hasattr(position, 'id') else None)
+                    if fee_result['success']:
+                        logger.info(f"Fee collected: {FEE_PER_TRADE_SOL} SOL from user {self.user_id}")
+                    else:
+                        logger.warning(f"Fee collection failed: {fee_result.get('error')}")
+
                 # Notify
                 await self._notify_trade_entry(position, signal)
 
@@ -279,6 +290,14 @@ class OpenClawTrader:
                         result['signature'],
                         reason
                     )
+
+                # Collect trading fee for exit
+                if self.user_id:
+                    fee_result = collect_fee(self.user_id)
+                    if fee_result['success']:
+                        logger.info(f"Exit fee collected: {FEE_PER_TRADE_SOL} SOL from user {self.user_id}")
+                    else:
+                        logger.warning(f"Exit fee collection failed: {fee_result.get('error')}")
 
                 # Notify
                 await self._notify_trade_exit(position, action, exit_sol, sell_percent)

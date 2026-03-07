@@ -584,19 +584,30 @@ Your watchlist wallets can be migrated:
 
     async def cmd_fees(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
-        /fees - View total fees paid
+        /fees <user_id> - View fees for a specific user (ADMIN ONLY)
         """
-        if not await self._check_auth(update):
+        admin_id = update.effective_user.id
+
+        if not self._is_admin(admin_id):
+            await update.message.reply_text("Admin only command.")
             return
 
-        user_id = update.effective_user.id
+        # Get target user (self or specified)
+        if context.args:
+            try:
+                target_user_id = int(context.args[0])
+            except ValueError:
+                await update.message.reply_text("Invalid user ID.")
+                return
+        else:
+            target_user_id = admin_id
 
         try:
             from trader.fee_collector import get_user_fees
 
-            fees = get_user_fees(user_id)
+            fees = get_user_fees(target_user_id)
 
-            message = f"""💸 **Trading Fees**
+            message = f"""💸 **Trading Fees** (User {target_user_id})
 
 📊 Total trades: **{fees['total_trades']}**
 💰 Total fees paid: **{fees['total_fees_sol']:.4f} SOL**
@@ -1081,7 +1092,7 @@ def register_trader_commands(application):
     tc = trader_commands
     tc._init_trader_tables()
 
-    # User commands
+    # User commands (authorized users)
     application.add_handler(CommandHandler("deposit", tc.cmd_deposit))
     application.add_handler(CommandHandler("balance", tc.cmd_balance))
     application.add_handler(CommandHandler("strategy", tc.cmd_strategy))
@@ -1090,12 +1101,12 @@ def register_trader_commands(application):
     application.add_handler(CommandHandler("disable", tc.cmd_disable))
     application.add_handler(CommandHandler("positions", tc.cmd_positions))
     application.add_handler(CommandHandler("history", tc.cmd_history))
-    application.add_handler(CommandHandler("fees", tc.cmd_fees))
     application.add_handler(CommandHandler("report", tc.cmd_report))
     application.add_handler(CommandHandler("withdraw", tc.cmd_withdraw))
 
-    # Admin commands
+    # Admin-only commands
     application.add_handler(CommandHandler("users", tc.cmd_users))
+    application.add_handler(CommandHandler("fees", tc.cmd_fees))
     application.add_handler(CommandHandler("totalfees", tc.cmd_totalfees))
     application.add_handler(CommandHandler("transferfees", tc.cmd_transferfees))
     application.add_handler(CommandHandler("authorize", tc.cmd_authorize))

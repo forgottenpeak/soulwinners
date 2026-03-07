@@ -35,7 +35,7 @@ from bot.utils import (
     is_valid_solana_address,
 )
 from bot.realtime_bot import get_wallet_from_alert_cache, get_wallet_from_truncated
-from bot.trader_commands import register_trader_commands
+from bot.trader_commands import register_trader_commands, ADMIN_USER_ID, SOULWINNERS_DB
 from utils.statistics import calculate_pool_robust_stats, robust_stats
 
 import pandas as pd
@@ -140,42 +140,34 @@ class CommandBot:
         """Set bot menu commands visible in Telegram."""
         from telegram import BotCommand
 
+        # Default commands visible to all users
         commands = [
-            # Main commands
-            BotCommand("start", "Start the bot"),
-            BotCommand("help", "Show all commands"),
-            BotCommand("buttons", "Quick action buttons"),
+            # Getting Started
+            BotCommand("start", "Welcome & how it works"),
+            BotCommand("help", "Complete guide"),
+
+            # Auto-Trader (authorized users)
+            BotCommand("deposit", "Fund your trading wallet"),
+            BotCommand("balance", "Check wallet balance"),
+            BotCommand("strategy", "Configure trading strategy"),
+            BotCommand("copylist", "Manage copy trading pool"),
+            BotCommand("enable", "Enable wallet for copy trading"),
+            BotCommand("disable", "Disable wallet from pool"),
+            BotCommand("positions", "View open positions"),
+            BotCommand("history", "Trade history"),
+            BotCommand("report", "AI strategy report"),
+            BotCommand("withdraw", "Withdraw funds"),
 
             # Watchlist
             BotCommand("add", "Add wallet to watchlist"),
             BotCommand("watchlist", "View your watchlist"),
             BotCommand("remove", "Remove wallet from watchlist"),
-            BotCommand("label", "Nickname a wallet"),
             BotCommand("summary", "Daily P&L summary"),
-            BotCommand("export", "Export watchlist to CSV"),
 
             # Analysis
             BotCommand("pool", "View wallet leaderboard"),
             BotCommand("leaderboard", "Top performers by ROI"),
             BotCommand("stats", "Pool statistics"),
-            BotCommand("insiders", "Insider pool stats"),
-            BotCommand("clusters", "Wallet clusters"),
-
-            # Admin
-            BotCommand("wallet", "Reveal full wallet address"),
-            BotCommand("premium", "Premium features info"),
-            BotCommand("settings", "Bot settings"),
-
-            # Auto-Trader commands
-            BotCommand("deposit", "Show deposit wallet & QR"),
-            BotCommand("balance", "Check trading wallet balance"),
-            BotCommand("strategy", "View/edit trading strategy"),
-            BotCommand("copylist", "View copy trading pool"),
-            BotCommand("positions", "View open positions"),
-            BotCommand("history", "View trade history"),
-            BotCommand("fees", "View fees paid"),
-            BotCommand("report", "Get AI strategy report"),
-            BotCommand("withdraw", "Withdraw from wallet"),
         ]
 
         try:
@@ -204,6 +196,26 @@ class CommandBot:
         if self._is_admin(user_id):
             return True
         return user_id in PREMIUM_USER_IDS
+
+    def _is_authorized_trader(self, user_id: int) -> bool:
+        """Check if user is authorized for auto-trader access."""
+        # Admin always has access
+        if user_id == ADMIN_USER_ID:
+            return True
+        # Check authorized_users table
+        try:
+            import sqlite3
+            conn = sqlite3.connect(SOULWINNERS_DB)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT status FROM authorized_users
+                WHERE user_id = ? AND status = 'active'
+            """, (user_id,))
+            row = cursor.fetchone()
+            conn.close()
+            return row is not None
+        except:
+            return False
 
     def _init_watchlist_table(self):
         """Initialize user_watchlists table in database."""
@@ -266,7 +278,7 @@ class CommandBot:
             await update.message.reply_text("Admin already registered.")
 
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Welcome message."""
+        """Welcome message based on user authorization level."""
         logger.info(f"Start command received from {update.effective_user.id} in {update.effective_chat.type}")
         if not self._is_private(update):
             logger.warning("Start command rejected: not private chat")
@@ -280,39 +292,85 @@ class CommandBot:
             pass
 
         user_id = update.effective_user.id
+        is_admin = self._is_admin(user_id)
+        is_authorized = self._is_authorized_trader(user_id)
 
-        if not self._is_admin(user_id):
-            await update.message.reply_text(
-                "🔒 **SoulWinners Admin Bot**\n\n"
-                "This bot is for authorized admins only.\n\n"
-                "If you're the owner, use /register to claim admin access.",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-
-        message = """
-🚀 **SoulWinners Admin Panel**
-
-Welcome! You have full access to wallet tracking commands.
-
-**Commands:**
-/pool - View all qualified wallets ranked by performance
-/wallets - Full wallet addresses with stats
-/leaderboard - Top performers with detailed metrics
-/stats - Pool statistics and tier breakdown
-/help - Command guide
-
-**Status:** 🟢 Online
-**Wallets Monitored:** Checking...
-"""
         # Get wallet count
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM qualified_wallets")
-        count = cursor.fetchone()[0]
-        conn.close()
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM qualified_wallets")
+            wallet_count = cursor.fetchone()[0]
+            conn.close()
+        except:
+            wallet_count = 0
 
-        message = message.replace("Checking...", str(count))
+        if is_admin:
+            # Admin message
+            message = f"""🚀 **SoulWinners Admin Panel**
+
+Welcome back! Full admin access enabled.
+
+**Quick Stats:**
+• Wallets monitored: {wallet_count}
+• Status: 🟢 Online
+
+**Admin Commands:**
+/authorize <user_id> - Grant user access
+/revoke <user_id> - Remove user access
+/authorized - View authorized users
+/users - All users with balances
+/totalfees - Fee collection stats
+/transferfees - Transfer fees to owner
+
+**Auto-Trader:**
+/deposit /balance /strategy /copylist
+/positions /history /report /withdraw
+
+/help - Full command guide
+"""
+        elif is_authorized:
+            # Authorized user message
+            message = f"""🚀 **Welcome to SoulWinners Auto-Trader!**
+
+Copy the best Solana traders automatically.
+
+💡 **How It Works:**
+1. Monitor buy alerts in @TopwhaleTracker
+2. Find wallets with good performance
+3. Add promising wallets to your watchlist
+4. Enable wallets you want to copy-trade
+5. Bot automatically copies their trades
+6. AI optimizes your strategy every 3 days
+
+**Quick Start:**
+/deposit - Fund your trading wallet
+/balance - Check your balance
+/help - Complete guide
+
+**Wallets Tracked:** {wallet_count}
+**Status:** 🟢 Online
+"""
+        else:
+            # Unauthorized user message
+            message = """🚀 **Welcome to SoulWinners Auto-Trader!**
+
+Copy the best Solana traders automatically.
+
+💡 **How It Works:**
+1. Monitor buy alerts in @TopwhaleTracker
+2. Find wallets with good performance
+3. Add promising wallets to your watchlist
+4. Enable wallets you want to copy-trade
+5. Bot automatically copies their trades
+6. AI optimizes your strategy every 3 days
+
+🔒 **Access Required**
+You need authorization to use auto-trader features.
+Contact admin to request access.
+
+/help - Learn more about SoulWinners
+"""
 
         await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
 
@@ -1410,107 +1468,149 @@ _Current status: {status}_"""
             await update.message.reply_text(f"Error: {e}")
 
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Comprehensive metrics guide."""
+        """Help message based on user authorization level."""
         if not self._is_private(update):
             return
 
-        logger.info(f"Help command received from user {update.effective_user.id}")
+        user_id = update.effective_user.id
+        is_admin = self._is_admin(user_id)
+        is_authorized = self._is_authorized_trader(user_id)
+
+        logger.info(f"Help command received from user {user_id} (admin={is_admin}, auth={is_authorized})")
 
         try:
-            # Split into multiple messages for readability
-            msg1 = """📊 **SOULWINNERS METRICS GUIDE**
+            if is_authorized or is_admin:
+                # AUTHORIZED USER HELP
+                msg1 = """📖 **How to Use SoulWinners**
 
-**📈 BUY EFFICIENCY SCORE (BES)**
-Measures capital efficiency - ROI per SOL risked.
-`Formula: (ROI/Trade × Win Rate × Frequency) / Avg Buy`
-Higher = Better returns with less capital
+🔍 **STEP 1: FIND WALLETS**
+Watch alerts in @TopwhaleTracker channel:
+• 🔥 Elite wallet bought $TOKEN
+• 🎯 Insider wallet detected early entry
+• Study their win rate, ROI, strategy
 
-Example:
-• Wallet A: 1000% ROI, 10 SOL avg buy = BES: 100
-• Wallet B: 200% ROI, 0.5 SOL avg buy = BES: 400 ✅
-_Wallet B is 4x more capital efficient!_
+💼 **STEP 2: FUND YOUR WALLET**
+/deposit - Get your unique trading wallet
+Send SOL to this address (you control it)
+/balance - Check your funds
 
-**📈 ROI/TRADE**
-Average return on investment per trade
-`Calculation: Total PnL / Number of trades`
+📋 **STEP 3: ADD TO WATCHLIST**
+When you see a good wallet in the channel:
+/add <wallet_address> - Add to watchlist
+/watchlist - View all watched wallets"""
 
-**✅ WIN RATE**
-Percentage of profitable trades
-`Calculation: Winning trades / Total trades × 100%`
+                msg2 = """🎯 **STEP 4: ENABLE COPY TRADING**
+/copylist - See your watchlist
+/enable <wallet> - Start auto-copying this wallet
+/disable <wallet> - Stop copying
 
-**💰 AVG BUY**
-Average SOL amount invested per trade
-Shows wallet's typical position size"""
+⚙️ **STEP 5: SET YOUR STRATEGY**
+/strategy - Configure your rules:
+• Buy amount per trade (e.g., 0.5 SOL)
+• Take profit target (e.g., +100%)
+• Stop loss protection (e.g., -10%)
+• Max trades per day (e.g., 10)
 
-            msg2 = """**🔢 TRADES**
-Total number of trades in last 15 days
-Higher = More active, more data points
+Example: `/strategy 0.3 100 15 10`
 
-**💎 BALANCE (LIVE)**
-Current SOL balance fetched in real-time
-Updated on each /pool request
+📊 **STEP 6: MONITOR PERFORMANCE**
+/positions - See your open trades
+/history - Past performance
+/report - Get AI strategy recommendations"""
 
-**🕐 LAST BUY**
-Most recent token purchase
-Shows: Token symbol, time ago, 24h price change
+                msg3 = """⚠️ **IMPORTANT**
+• You choose which wallets to copy (from channel alerts)
+• Bot only trades when YOUR selected wallets trade
+• Your funds stay in YOUR wallet
+• Withdraw anytime with /withdraw
 
-**🎯 STRATEGY TYPES**
-• **Moonshot Hunters** - High-risk, chasing 10x+
-• **Core Alpha (Active)** - Frequent, consistent gains
-• **Conviction Holders** - Long-term positions
-• **Low-frequency Snipers** - Few trades, high conviction
-• **Dormant/Legacy** - Previously active, now quiet"""
+**💰 FEES**
+• 0.01 SOL per trade (auto-deducted)
+• No monthly fees, no hidden costs
 
-            msg3 = """**📊 QUALITY FILTERS**
-Wallets must meet ALL to enter pool:
-• SOL Balance ≥ 10
-• Trades ≥ 15 (in 15 days)
-• Win Rate ≥ 60%
-• Total ROI ≥ 50%
+**🔗 USEFUL LINKS**
+• Alerts: @TopwhaleTracker
+• Support: Contact admin
 
-**🔔 ALERT FILTERS**
-Buy alerts posted to channel when:
-• Wallet buys ≥ 2 SOL worth
-• Transaction < 5 minutes old
-• Last 5 closed trades show ≥ 60% win rate
+**ALL COMMANDS**
+/deposit /balance /strategy /copylist
+/enable /disable /positions /history
+/report /withdraw /add /watchlist /summary"""
 
-**📱 COMMANDS**
-/pool - BES leaderboard with live balances
-/wallets - Full addresses with links
-/leaderboard - Top 10 by ROI
-/stats - Pool statistics
-/buttons - Quick action buttons
-/help - This guide
+                await update.message.reply_text(msg1, parse_mode=ParseMode.MARKDOWN)
+                await update.message.reply_text(msg2, parse_mode=ParseMode.MARKDOWN)
+                await update.message.reply_text(msg3, parse_mode=ParseMode.MARKDOWN)
 
-**🎯 ANALYSIS**
-/insiders - Insider pool statistics
-/clusters - Detected wallet clusters
-/early_birds - Fresh launch snipers
+                # Send admin commands if admin
+                if is_admin:
+                    admin_msg = """**⚙️ ADMIN COMMANDS**
 
-**👁️ WATCHLIST**
-/add - Reply to alert to add wallet
-/watchlist - View your watched wallets
-/remove [n] - Remove wallet by number
-/label [n] [name] - Nickname a wallet
-/summary - Daily P&L summary
-/export - Export watchlist to CSV
-/premium - Premium features info
+**User Management:**
+/authorize <user_id> - Grant access
+/revoke <user_id> - Remove access
+/authorized - View authorized users
 
-**⚙️ ADMIN**
+**Fee Management:**
+/users - All users with balances
+/fees <user_id> - User's fees
+/totalfees - Total fees collected
+/transferfees - Transfer to owner
+
+**System:**
 /settings - Control panel
-/cron - Cron job status
 /logs - View system logs
-/restart - Restart components
-/trader - Auto-trader status
-/wallet - Reveal full wallet from truncated
+/wallet - Reveal full wallet"""
+                    await update.message.reply_text(admin_msg, parse_mode=ParseMode.MARKDOWN)
 
-_Watchlist alerts:_
-_• BUY: When they buy ≥1.5 SOL_
-_• SELL: When they sell (shows P/L)_"""
+            else:
+                # UNAUTHORIZED USER HELP
+                msg1 = """📖 **About SoulWinners Auto-Trader**
 
-            await update.message.reply_text(msg1, parse_mode=ParseMode.MARKDOWN)
-            await update.message.reply_text(msg2, parse_mode=ParseMode.MARKDOWN)
-            await update.message.reply_text(msg3, parse_mode=ParseMode.MARKDOWN)
+This bot helps you copy-trade elite Solana wallets.
+
+🎯 **The Process:**
+1. Watch wallet buy alerts in @TopwhaleTracker
+2. Research wallets - check win rate, ROI, strategy
+3. Add good wallets to your personal watchlist
+4. Enable copy-trading for wallets you trust
+5. Bot automatically mirrors their trades
+6. AI analyzes your performance and suggests improvements"""
+
+                msg2 = """✨ **Features:**
+• **Manual wallet selection** - You're in control
+• **Customizable strategy** - Set buy amount, TP, SL
+• **Turbo-fast execution** - Better entries than manual
+• **AI-powered optimization** - Improve over time
+• **Your wallet, your funds** - Withdraw anytime
+
+This is NOT auto-following random wallets.
+YOU decide which proven traders to copy.
+
+💰 **Fees:**
+• 0.01 SOL per trade
+• No monthly fees
+• No hidden costs"""
+
+                msg3 = """🔒 **Access Required**
+
+Auto-trader features require authorization.
+Contact admin to request access.
+
+Once approved, you can:
+• Create your trading wallet
+• Add wallets to copy pool
+• Set your strategy parameters
+• Start auto-copying trades
+• Monitor performance
+• Get AI recommendations
+
+**Alerts Channel:** @TopwhaleTracker
+Watch alerts to find wallets worth copying!"""
+
+                await update.message.reply_text(msg1, parse_mode=ParseMode.MARKDOWN)
+                await update.message.reply_text(msg2, parse_mode=ParseMode.MARKDOWN)
+                await update.message.reply_text(msg3, parse_mode=ParseMode.MARKDOWN)
+
             logger.info("Help command completed successfully")
         except Exception as e:
             logger.error(f"Help command failed: {e}")

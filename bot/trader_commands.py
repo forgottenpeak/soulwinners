@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, Bot, BotCommand, BotCommandScopeChat, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
@@ -28,6 +28,80 @@ ADMIN_USER_ID = 1153491543
 # Database paths
 SOULWINNERS_DB = Path(__file__).parent.parent / "data" / "soulwinners.db"
 OPENCLAW_DB = Path(__file__).parent.parent / "data" / "openclaw.db"
+
+
+async def update_user_menu(bot: Bot, user_id: int):
+    """Set personalized command menu based on user role."""
+    # Check if user is authorized
+    is_admin = (user_id == ADMIN_USER_ID)
+    is_authorized = False
+
+    if not is_admin:
+        try:
+            conn = sqlite3.connect(SOULWINNERS_DB)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM authorized_users WHERE user_id = ? AND status = 'active'",
+                (user_id,)
+            )
+            is_authorized = cursor.fetchone() is not None
+            conn.close()
+        except Exception as e:
+            logger.error(f"Error checking authorization: {e}")
+
+    # Define command lists by role
+    if is_admin:
+        commands = [
+            BotCommand("start", "Welcome message"),
+            BotCommand("help", "How to use"),
+            BotCommand("deposit", "Get deposit wallet"),
+            BotCommand("balance", "Check balance"),
+            BotCommand("strategy", "Set trading strategy"),
+            BotCommand("copylist", "View copy trading pool"),
+            BotCommand("enable", "Enable wallet for copy trading"),
+            BotCommand("disable", "Disable wallet"),
+            BotCommand("positions", "View open positions"),
+            BotCommand("history", "Trade history"),
+            BotCommand("report", "AI strategy report"),
+            BotCommand("withdraw", "Withdraw funds"),
+            BotCommand("authorize", "Authorize user"),
+            BotCommand("revoke", "Revoke user access"),
+            BotCommand("authorized", "List authorized users"),
+            BotCommand("users", "View all users"),
+            BotCommand("fees", "View user fees"),
+            BotCommand("totalfees", "Total fees collected"),
+            BotCommand("transferfees", "Transfer fees to owner"),
+            BotCommand("wallet", "Reveal full wallet address"),
+        ]
+    elif is_authorized:
+        commands = [
+            BotCommand("start", "Welcome message"),
+            BotCommand("help", "How to use"),
+            BotCommand("deposit", "Get deposit wallet"),
+            BotCommand("balance", "Check balance"),
+            BotCommand("strategy", "Set trading strategy"),
+            BotCommand("copylist", "View copy trading pool"),
+            BotCommand("enable", "Enable wallet for copy trading"),
+            BotCommand("disable", "Disable wallet"),
+            BotCommand("positions", "View open positions"),
+            BotCommand("history", "Trade history"),
+            BotCommand("report", "AI strategy report"),
+            BotCommand("withdraw", "Withdraw funds"),
+        ]
+    else:
+        commands = [
+            BotCommand("start", "Welcome to SoulWinners"),
+            BotCommand("help", "How it works"),
+        ]
+
+    # Set menu for this specific user
+    try:
+        scope = BotCommandScopeChat(chat_id=user_id)
+        await bot.set_my_commands(commands, scope=scope)
+        role = "admin" if is_admin else "authorized" if is_authorized else "default"
+        logger.info(f"Set {role} menu for user {user_id}")
+    except Exception as e:
+        logger.error(f"Failed to set menu for user {user_id}: {e}")
 
 
 class TraderCommands:
@@ -930,10 +1004,18 @@ Reply with /confirm_withdraw to proceed.
             f"✅ **User Authorized**\n\n"
             f"User ID: `{target_user_id}`\n"
             f"Status: Active\n\n"
-            f"They can now use auto-trader commands.",
+            f"They can now use auto-trader commands.\n"
+            f"Their menu has been updated.",
             parse_mode=ParseMode.MARKDOWN
         )
         logger.info(f"User {target_user_id} authorized by admin {admin_id}")
+
+        # Update the user's command menu
+        try:
+            bot = Bot(token=self.token)
+            await update_user_menu(bot, target_user_id)
+        except Exception as e:
+            logger.error(f"Failed to update menu for authorized user: {e}")
 
     async def cmd_revoke(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -974,10 +1056,18 @@ Reply with /confirm_withdraw to proceed.
                 f"❌ **Access Revoked**\n\n"
                 f"User ID: `{target_user_id}`\n"
                 f"Status: Revoked\n\n"
-                f"They can no longer use auto-trader commands.",
+                f"They can no longer use auto-trader commands.\n"
+                f"Their menu has been reset.",
                 parse_mode=ParseMode.MARKDOWN
             )
             logger.info(f"User {target_user_id} access revoked by admin {admin_id}")
+
+            # Update the user's command menu to default
+            try:
+                bot = Bot(token=self.token)
+                await update_user_menu(bot, target_user_id)
+            except Exception as e:
+                logger.error(f"Failed to update menu for revoked user: {e}")
 
         conn.commit()
         conn.close()

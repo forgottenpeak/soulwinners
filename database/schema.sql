@@ -353,3 +353,19 @@ CREATE TABLE IF NOT EXISTS win_milestones (
 
 CREATE INDEX IF NOT EXISTS idx_win_milestones_token ON win_milestones(token_address);
 CREATE INDEX IF NOT EXISTS idx_win_milestones_wallet ON win_milestones(wallet_address);
+
+-- =============================================================================
+-- TABLE 18: CRON STATES (Background job on/off control)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS cron_states (
+    cron_name TEXT PRIMARY KEY,
+    enabled INTEGER DEFAULT 1,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Default cron states (all enabled)
+INSERT OR IGNORE INTO cron_states (cron_name, enabled) VALUES
+    ('buy_alerts', 1),
+    ('insider_detection', 1),
+    ('main_pipeline', 1),
+    ('cluster_analysis', 1);

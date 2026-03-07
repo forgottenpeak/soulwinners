@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from collectors.launch_tracker import InsiderScanner
+from database import get_connection
 
 # Configure logging
 logging.basicConfig(
@@ -22,9 +23,27 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def is_cron_enabled(cron_name: str) -> bool:
+    """Check if cron job is enabled in database."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT enabled FROM cron_states WHERE cron_name = ?", (cron_name,))
+        row = cursor.fetchone()
+        conn.close()
+        return bool(row[0]) if row else True
+    except:
+        return True
+
+
 async def main():
     """Run insider detection (one cycle)."""
     try:
+        # Check if enabled
+        if not is_cron_enabled('insider_detection'):
+            logger.info("INSIDER DETECTION - SKIPPED (disabled in cron_states)")
+            return
+
         logger.info("=" * 60)
         logger.info("INSIDER DETECTION - Starting")
         logger.info("=" * 60)

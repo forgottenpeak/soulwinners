@@ -527,8 +527,25 @@ class RealTimeBot:
 
             await asyncio.sleep(POLL_INTERVAL)
 
+    def _is_cron_enabled(self, cron_name: str) -> bool:
+        """Check if a cron job is enabled in database."""
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT enabled FROM cron_states WHERE cron_name = ?", (cron_name,))
+            row = cursor.fetchone()
+            conn.close()
+            return bool(row[0]) if row else True  # Default to enabled
+        except:
+            return True  # Default to enabled if error
+
     async def _poll_cycle(self):
         """One polling cycle - check qualified + insider + watchlist wallets."""
+        # Check if buy_alerts is enabled
+        if not self._is_cron_enabled('buy_alerts'):
+            logger.info("📡 Poll cycle skipped - buy_alerts DISABLED")
+            return
+
         total_qualified = len(self.qualified_wallets)
         total_insider = len(self.insider_wallets)
         total_watchlist = len(self.watchlist_wallets)

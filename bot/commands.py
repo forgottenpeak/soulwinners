@@ -10,7 +10,7 @@ import os
 from io import BytesIO
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
-from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -20,6 +20,7 @@ from telegram.ext import (
     filters,
 )
 from telegram.constants import ParseMode
+from telegram import BotCommandScopeChat
 import aiohttp
 
 from config.settings import TELEGRAM_BOT_TOKEN
@@ -35,7 +36,7 @@ from bot.utils import (
     is_valid_solana_address,
 )
 from bot.realtime_bot import get_wallet_from_alert_cache, get_wallet_from_truncated
-from bot.trader_commands import register_trader_commands, ADMIN_USER_ID, SOULWINNERS_DB
+from bot.trader_commands import register_trader_commands, ADMIN_USER_ID, SOULWINNERS_DB, update_user_menu
 from utils.statistics import calculate_pool_robust_stats, robust_stats
 
 import pandas as pd
@@ -137,44 +138,20 @@ class CommandBot:
             await self.application.shutdown()
 
     async def _set_bot_commands(self):
-        """Set bot menu commands visible in Telegram."""
-        from telegram import BotCommand
-
-        # Default commands visible to all users
-        commands = [
-            # Getting Started
-            BotCommand("start", "Welcome & how it works"),
-            BotCommand("help", "Complete guide"),
-
-            # Auto-Trader (authorized users)
-            BotCommand("deposit", "Fund your trading wallet"),
-            BotCommand("balance", "Check wallet balance"),
-            BotCommand("strategy", "Configure trading strategy"),
-            BotCommand("copylist", "Manage copy trading pool"),
-            BotCommand("enable", "Enable wallet for copy trading"),
-            BotCommand("disable", "Disable wallet from pool"),
-            BotCommand("positions", "View open positions"),
-            BotCommand("history", "Trade history"),
-            BotCommand("report", "AI strategy report"),
-            BotCommand("withdraw", "Withdraw funds"),
-
-            # Watchlist
-            BotCommand("add", "Add wallet to watchlist"),
-            BotCommand("watchlist", "View your watchlist"),
-            BotCommand("remove", "Remove wallet from watchlist"),
-            BotCommand("summary", "Daily P&L summary"),
-
-            # Analysis
-            BotCommand("pool", "View wallet leaderboard"),
-            BotCommand("leaderboard", "Top performers by ROI"),
-            BotCommand("stats", "Pool statistics"),
+        """Set default bot menu commands (for users who haven't started the bot)."""
+        # Default menu for new/unauthorized users
+        # Personalized menus are set per-user in cmd_start via set_user_menu()
+        default_commands = [
+            BotCommand("start", "Welcome to SoulWinners"),
+            BotCommand("help", "How it works"),
         ]
 
         try:
-            await self.application.bot.set_my_commands(commands)
-            logger.info(f"Set {len(commands)} bot menu commands")
+            # Set global default menu
+            await self.application.bot.set_my_commands(default_commands)
+            logger.info("Set default bot menu (2 commands)")
         except Exception as e:
-            logger.error(f"Failed to set bot commands: {e}")
+            logger.error(f"Failed to set default bot commands: {e}")
 
     def _is_admin(self, user_id: int) -> bool:
         """Check if user is admin."""
@@ -216,6 +193,10 @@ class CommandBot:
             return row is not None
         except:
             return False
+
+    async def set_user_menu(self, user_id: int):
+        """Set personalized command menu based on user's authorization level."""
+        await update_user_menu(self.application.bot, user_id)
 
     def _init_watchlist_table(self):
         """Initialize user_watchlists table in database."""
@@ -373,6 +354,9 @@ Contact admin to request access.
 """
 
         await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+
+        # Set personalized command menu for this user
+        await self.set_user_menu(user_id)
 
     async def cmd_pool(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show all qualified wallets ranked by Buy Efficiency Score (BES)."""

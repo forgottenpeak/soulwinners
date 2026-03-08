@@ -1,16 +1,22 @@
 """
 Position Manager - Track open positions and P&L
+With Wallet Decay & Auto-Demotion System
 """
 import asyncio
 import logging
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 import sqlite3
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Decay thresholds
+DEMOTION_WIN_RATE = 0.60  # Demote if win rate falls below 60%
+PROMOTION_WIN_RATE = 0.65  # Auto-promote if win rate rises above 65%
+MIN_TRADES_FOR_DECAY = 5  # Need at least 5 trades to evaluate
 
 
 class PositionStatus(Enum):
@@ -515,3 +521,249 @@ class PositionManager:
         conn.execute("UPDATE stats SET value = ? WHERE key = 'current_balance'", (str(balance),))
         conn.commit()
         conn.close()
+
+
+class WalletDecayChecker:
+    """
+    Monitors copy pool wallets for performance decay.
+
+    When a wallet's win rate drops below threshold (60%):
+    1. Auto-demotes to watchlist (disables copying)
+    2. Sends alert to user
+    3. Continues monitoring
+
+    When a demoted wallet's win rate improves (>= 65%):
+    1. Auto-promotes back to copy pool
+    2. Sends alert to user
+    """
+
+    def __init__(self, db_path: str = "data/soulwinners.db"):
+        self.db_path = Path(db_path)
+        self._init_tables()
+
+    def _init_tables(self):
+        """Ensure required tables exist."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.executescript("""
+                -- Ensure copy_pool has demotion columns
+                CREATE TABLE IF NOT EXISTS copy_pool (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    wallet_address TEXT NOT NULL,
+                    enabled INTEGER DEFAULT 1,
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    demotion_reason TEXT,
+                    demoted_at TIMESTAMP,
+                    auto_demoted INTEGER DEFAULT 0,
+                    UNIQUE(user_id, wallet_address)
+                );
+
+                -- Performance history table
+                CREATE TABLE IF NOT EXISTS wallet_performance_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    wallet_address TEXT NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    win_rate REAL,
+                    total_trades INTEGER,
+                    wins INTEGER,
+                    losses INTEGER,
+                    checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_perf_history_wallet
+                    ON wallet_performance_history(wallet_address);
+            """)
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Failed to init decay tables: {e}")
+
+    async def check_wallet_performance(
+        self,
+        wallet_address: str,
+        user_id: int,
+        wins: int,
+        losses: int
+    ) -> Optional[Dict]:
+        """
+        Check if a wallet's recent performance triggers demotion or promotion.
+
+        Called after each trade closes.
+
+        Args:
+            wallet_address: The tracked wallet
+            user_id: User who owns this copy pool entry
+            wins: Total wins in recent trades
+            losses: Total losses in recent trades
+
+        Returns:
+            Dict with action taken or None if no action needed:
+            {
+                'action': 'demoted' | 'promoted' | None,
+                'win_rate': float,
+                'trades': int,
+            }
+        """
+        total_trades = wins + losses
+
+        if total_trades < MIN_TRADES_FOR_DECAY:
+            return None  # Not enough data
+
+        win_rate = wins / total_trades if total_trades > 0 else 0
+
+        # Log performance history
+        self._record_performance(wallet_address, user_id, win_rate, total_trades, wins, losses)
+
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # Check current status in copy_pool
+            cursor.execute("""
+                SELECT enabled, auto_demoted FROM copy_pool
+                WHERE user_id = ? AND wallet_address = ?
+            """, (user_id, wallet_address))
+            row = cursor.fetchone()
+
+            if not row:
+                conn.close()
+                return None  # Not in copy pool
+
+            is_enabled = bool(row[0])
+            was_auto_demoted = bool(row[1])
+
+            # Case 1: Currently enabled, check for demotion
+            if is_enabled and win_rate < DEMOTION_WIN_RATE:
+                cursor.execute("""
+                    UPDATE copy_pool SET
+                        enabled = 0,
+                        demotion_reason = ?,
+                        demoted_at = datetime('now'),
+                        auto_demoted = 1
+                    WHERE user_id = ? AND wallet_address = ?
+                """, (
+                    f"Win rate dropped to {win_rate*100:.0f}% ({wins}/{total_trades})",
+                    user_id,
+                    wallet_address
+                ))
+                conn.commit()
+                conn.close()
+
+                logger.info(f"Auto-demoted wallet {wallet_address[:12]}... for user {user_id} "
+                           f"(win rate: {win_rate*100:.0f}%)")
+
+                return {
+                    'action': 'demoted',
+                    'win_rate': win_rate,
+                    'trades': total_trades,
+                    'wins': wins,
+                    'losses': losses,
+                }
+
+            # Case 2: Currently disabled (demoted), check for promotion
+            if not is_enabled and was_auto_demoted and win_rate >= PROMOTION_WIN_RATE:
+                cursor.execute("""
+                    UPDATE copy_pool SET
+                        enabled = 1,
+                        demotion_reason = NULL,
+                        demoted_at = NULL,
+                        auto_demoted = 0
+                    WHERE user_id = ? AND wallet_address = ?
+                """, (user_id, wallet_address))
+                conn.commit()
+                conn.close()
+
+                logger.info(f"Auto-promoted wallet {wallet_address[:12]}... for user {user_id} "
+                           f"(win rate improved to {win_rate*100:.0f}%)")
+
+                return {
+                    'action': 'promoted',
+                    'win_rate': win_rate,
+                    'trades': total_trades,
+                    'wins': wins,
+                    'losses': losses,
+                }
+
+            conn.close()
+            return None
+
+        except Exception as e:
+            logger.error(f"Error checking wallet decay: {e}")
+            return None
+
+    def _record_performance(
+        self,
+        wallet_address: str,
+        user_id: int,
+        win_rate: float,
+        total_trades: int,
+        wins: int,
+        losses: int
+    ):
+        """Record performance history for analytics."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.execute("""
+                INSERT INTO wallet_performance_history
+                (wallet_address, user_id, win_rate, total_trades, wins, losses)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (wallet_address, user_id, win_rate, total_trades, wins, losses))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.debug(f"Failed to record performance: {e}")
+
+    def get_demoted_wallets(self, user_id: int) -> List[Dict]:
+        """Get all auto-demoted wallets for a user."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT wallet_address, demotion_reason, demoted_at
+                FROM copy_pool
+                WHERE user_id = ? AND enabled = 0 AND auto_demoted = 1
+            """, (user_id,))
+            rows = cursor.fetchall()
+            conn.close()
+
+            return [
+                {
+                    'wallet': row[0],
+                    'reason': row[1],
+                    'demoted_at': row[2],
+                }
+                for row in rows
+            ]
+        except Exception as e:
+            logger.error(f"Failed to get demoted wallets: {e}")
+            return []
+
+    def get_performance_history(self, wallet_address: str, limit: int = 10) -> List[Dict]:
+        """Get recent performance history for a wallet."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT win_rate, total_trades, wins, losses, checked_at
+                FROM wallet_performance_history
+                WHERE wallet_address = ?
+                ORDER BY checked_at DESC
+                LIMIT ?
+            """, (wallet_address, limit))
+            rows = cursor.fetchall()
+            conn.close()
+
+            return [
+                {
+                    'win_rate': row[0],
+                    'total_trades': row[1],
+                    'wins': row[2],
+                    'losses': row[3],
+                    'checked_at': row[4],
+                }
+                for row in rows
+            ]
+        except Exception as e:
+            logger.error(f"Failed to get performance history: {e}")
+            return []

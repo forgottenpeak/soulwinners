@@ -65,6 +65,7 @@ async def update_user_menu(bot: Bot, user_id: int):
             # Core
             BotCommand("start", "Welcome message"),
             BotCommand("help", "How to use"),
+            BotCommand("userguide", "Step-by-step tutorial"),
             # Auto-trader
             BotCommand("deposit", "Get deposit wallet"),
             BotCommand("balance", "Check balance"),
@@ -76,10 +77,12 @@ async def update_user_menu(bot: Bot, user_id: int):
             BotCommand("history", "Trade history"),
             BotCommand("report", "AI strategy report"),
             BotCommand("withdraw", "Withdraw funds"),
-            # Watchlist
+            # Watchlist & Decay
             BotCommand("add", "Add wallet to watchlist"),
             BotCommand("watchlist", "View watchlist"),
             BotCommand("remove", "Remove wallet from watchlist"),
+            BotCommand("promote", "Move to copy pool"),
+            BotCommand("demote", "Move to watchlist"),
             BotCommand("summary", "Daily PnL summary"),
             # Pool & Stats
             BotCommand("pool", "Wallet leaderboard"),
@@ -110,6 +113,8 @@ async def update_user_menu(bot: Bot, user_id: int):
         commands = [
             BotCommand("start", "Welcome message"),
             BotCommand("help", "How to use"),
+            BotCommand("userguide", "Step-by-step tutorial"),
+            # Auto-trader
             BotCommand("deposit", "Get deposit wallet"),
             BotCommand("balance", "Check balance"),
             BotCommand("strategy", "Set trading strategy"),
@@ -120,11 +125,18 @@ async def update_user_menu(bot: Bot, user_id: int):
             BotCommand("history", "Trade history"),
             BotCommand("report", "AI strategy report"),
             BotCommand("withdraw", "Withdraw funds"),
+            # Watchlist
+            BotCommand("add", "Add wallet to watchlist"),
+            BotCommand("watchlist", "View watchlist"),
+            BotCommand("remove", "Remove from watchlist"),
+            BotCommand("promote", "Move to copy pool"),
+            BotCommand("demote", "Move to watchlist"),
         ]
     else:
         commands = [
             BotCommand("start", "Welcome to SoulWinners"),
             BotCommand("help", "How it works"),
+            BotCommand("userguide", "Step-by-step tutorial"),
         ]
 
     # Set menu for this specific user

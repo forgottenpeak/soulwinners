@@ -320,11 +320,31 @@ CREATE TABLE IF NOT EXISTS copy_pool (
     wallet_address TEXT NOT NULL,
     enabled INTEGER DEFAULT 1,
     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    demotion_reason TEXT,
+    demoted_at TIMESTAMP,
+    auto_demoted INTEGER DEFAULT 0,
     UNIQUE(user_id, wallet_address)
 );
 
 CREATE INDEX IF NOT EXISTS idx_copy_pool_user ON copy_pool(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_strategies_user ON user_strategies(user_id);
+
+-- =============================================================================
+-- TABLE 15b: WALLET PERFORMANCE HISTORY (Track win rate over time)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS wallet_performance_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    wallet_address TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    win_rate REAL,
+    total_trades INTEGER,
+    wins INTEGER,
+    losses INTEGER,
+    checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_perf_history_wallet ON wallet_performance_history(wallet_address);
+CREATE INDEX IF NOT EXISTS idx_perf_history_user ON wallet_performance_history(user_id);
 
 -- =============================================================================
 -- TABLE 16: AUTHORIZED USERS (Users authorized for auto-trader access)

@@ -108,6 +108,7 @@ async def update_user_menu(bot: Bot, user_id: int):
             BotCommand("premium", "Premium features info"),
             BotCommand("crons", "Cron job status"),
             BotCommand("logs", "View system logs"),
+            BotCommand("purge", "Remove wallet from all pools"),
         ]
     elif is_authorized:
         commands = [

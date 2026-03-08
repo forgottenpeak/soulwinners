@@ -125,6 +125,7 @@ class CommandBot:
         self.application.add_handler(CommandHandler("toggleclusters", self.cmd_toggleclusters))
         self.application.add_handler(CommandHandler("restartall", self.cmd_restartall))
         self.application.add_handler(CommandHandler("stopall", self.cmd_stopall))
+        self.application.add_handler(CommandHandler("purge", self.cmd_purge_wallet))
 
         # Register callback handler for inline buttons
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
@@ -1175,6 +1176,142 @@ Use /watchlist to see all your watched wallets."""
         except Exception as e:
             logger.error(f"Demote wallet error: {e}")
             await update.message.reply_text(f"Error: {e}")
+
+    async def cmd_purge_wallet(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        ADMIN ONLY: Permanently remove a wallet from ALL system pools.
+
+        Usage: /purge <wallet_address>
+
+        Removes wallet from:
+        - qualified_wallets
+        - insider_pool
+        - user_watchlists (all users)
+        - copy_pool
+        - wallet_performance_history
+        """
+        if not self._is_private(update):
+            return
+
+        user_id = update.effective_user.id
+
+        # ADMIN ONLY
+        if not self._is_admin(user_id):
+            await update.message.reply_text("🔒 This command is admin-only.")
+            return
+
+        # Get wallet address from command args
+        if not context.args or len(context.args) < 1:
+            await update.message.reply_text(
+                "**Usage:** `/purge <wallet_address>`\n\n"
+                "Permanently removes wallet from ALL system pools.\n\n"
+                "Example:\n"
+                "`/purge 7BNaxx6KdUYrjACNQZ9He26NBFoFxujQMAfNLnArLGH5`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        wallet_addr = context.args[0].strip()
+
+        # Validate wallet format
+        if not is_valid_solana_address(wallet_addr):
+            await update.message.reply_text(
+                "❌ Invalid wallet address format.\n\n"
+                "Must be a valid Solana address (32-44 characters)."
+            )
+            return
+
+        logger.info(f"🗑️ ADMIN PURGE: User {user_id} purging wallet {wallet_addr}")
+
+        removed_from = []
+
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            # 1. Check and delete from qualified_wallets
+            cursor.execute("SELECT tier FROM qualified_wallets WHERE wallet_address = ?", (wallet_addr,))
+            row = cursor.fetchone()
+            if row:
+                tier = row[0] or "Unknown"
+                cursor.execute("DELETE FROM qualified_wallets WHERE wallet_address = ?", (wallet_addr,))
+                removed_from.append(f"✅ Qualified wallets (was {tier} tier)")
+
+            # 2. Check and delete from insider_pool
+            cursor.execute("SELECT pattern FROM insider_pool WHERE wallet_address = ?", (wallet_addr,))
+            row = cursor.fetchone()
+            if row:
+                pattern = row[0] or "Unknown"
+                cursor.execute("DELETE FROM insider_pool WHERE wallet_address = ?", (wallet_addr,))
+                removed_from.append(f"✅ Insider pool (was {pattern})")
+
+            # 3. Check and delete from user_watchlists (count affected users)
+            cursor.execute("SELECT COUNT(*) FROM user_watchlists WHERE wallet_address = ?", (wallet_addr,))
+            watchlist_count = cursor.fetchone()[0]
+            if watchlist_count > 0:
+                cursor.execute("DELETE FROM user_watchlists WHERE wallet_address = ?", (wallet_addr,))
+                removed_from.append(f"✅ {watchlist_count} user watchlist(s)")
+
+            # 4. Check and delete from copy_pool
+            cursor.execute("SELECT COUNT(*) FROM copy_pool WHERE wallet_address = ?", (wallet_addr,))
+            copy_count = cursor.fetchone()[0]
+            if copy_count > 0:
+                cursor.execute("DELETE FROM copy_pool WHERE wallet_address = ?", (wallet_addr,))
+                removed_from.append(f"✅ Copy pool ({copy_count} entries)")
+
+            # 5. Delete from wallet_performance_history if exists
+            try:
+                cursor.execute("SELECT COUNT(*) FROM wallet_performance_history WHERE wallet_address = ?", (wallet_addr,))
+                perf_count = cursor.fetchone()[0]
+                if perf_count > 0:
+                    cursor.execute("DELETE FROM wallet_performance_history WHERE wallet_address = ?", (wallet_addr,))
+                    removed_from.append(f"✅ Performance history ({perf_count} records)")
+            except:
+                pass  # Table may not exist
+
+            # 6. Delete from wallet_connections if exists
+            try:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM wallet_connections
+                    WHERE wallet_a = ? OR wallet_b = ?
+                """, (wallet_addr, wallet_addr))
+                conn_count = cursor.fetchone()[0]
+                if conn_count > 0:
+                    cursor.execute("""
+                        DELETE FROM wallet_connections
+                        WHERE wallet_a = ? OR wallet_b = ?
+                    """, (wallet_addr, wallet_addr))
+                    removed_from.append(f"✅ Wallet connections ({conn_count} links)")
+            except:
+                pass  # Table may not exist
+
+            conn.commit()
+            conn.close()
+
+            # Build response
+            wallet_display = f"{wallet_addr[:5]}...{wallet_addr[-5:]}"
+
+            if removed_from:
+                removed_list = "\n".join(removed_from)
+                message = f"""🗑️ **PURGED WALLET:** `{wallet_display}`
+
+**Removed from:**
+{removed_list}
+
+⚠️ This wallet will no longer trigger any alerts."""
+            else:
+                message = f"""⚠️ **Wallet not found in any pool**
+
+`{wallet_display}`
+
+This wallet was not tracked in the system."""
+
+            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+            logger.info(f"✅ PURGE COMPLETE: {wallet_addr} removed from {len(removed_from)} locations")
+
+        except Exception as e:
+            logger.error(f"❌ Purge wallet error: {e}")
+            await update.message.reply_text(f"❌ Error purging wallet: {e}")
 
     async def cmd_label(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Label a watchlist wallet with a nickname."""

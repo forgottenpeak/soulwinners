@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 WIN_MILESTONES = [2, 3, 5, 10, 20, 50, 100]
 
 # Configuration
-MIN_BUY_AMOUNT_SOL = 1.0       # Minimum 1 SOL for qualified wallet alerts
+MIN_BUY_AMOUNT_SOL = 1.5       # Minimum 1.5 SOL for qualified wallet alerts
 MIN_WATCHLIST_BUY_SOL = 1.5    # Minimum 1.5 SOL for watchlist alerts
 MAX_TX_AGE_MINUTES = 5         # Only alert on transactions < 5 minutes old
 POLL_INTERVAL = 30             # Seconds between polling cycles
@@ -575,17 +575,23 @@ class RealTimeBot:
                 logger.warning(f"Error checking insider {wallet_addr[:15]}...: {e}")
 
         # Check watchlist wallets (personal DM alerts)
+        # Note: Wallets in both qualified/insider AND watchlist get DMs sent from _send_qualified_alert/_send_insider_alert
+        watchlist_only_count = 0
         for wallet_addr in self.watchlist_wallets:
-            # Skip if already checked as qualified or insider wallet
+            # Skip if already checked as qualified or insider wallet (DM will be sent there)
             if wallet_addr in self.qualified_wallets or wallet_addr in self.insider_wallets:
                 continue
 
+            watchlist_only_count += 1
             try:
                 await self._check_wallet(wallet_addr, None, is_watchlist=True, is_insider=False)
                 checked += 1
                 await asyncio.sleep(1.5)  # Rate limit between wallets
             except Exception as e:
                 logger.warning(f"Error checking watchlist {wallet_addr[:15]}...: {e}")
+
+        if watchlist_only_count > 0:
+            logger.info(f"📋 Checked {watchlist_only_count} watchlist-only wallets")
 
         logger.info(f"📡 Poll cycle complete ({checked} wallets checked)")
 
@@ -767,6 +773,11 @@ class RealTimeBot:
                 return
 
             await self._send_insider_alert(wallet_addr, parsed)
+
+            # ALSO send watchlist DM if this wallet is in someone's watchlist
+            if self.watchlist.is_watchlist_wallet(wallet_addr):
+                logger.info(f"📨 Insider also in watchlist - sending DM alerts")
+                await self._send_watchlist_buy_alert(wallet_addr, parsed)
             return
 
         # 5. Handle QUALIFIED wallets - buys only
@@ -785,6 +796,11 @@ class RealTimeBot:
             return
 
         await self._send_qualified_alert(wallet_addr, wallet_data, parsed)
+
+        # ALSO send watchlist DM if this wallet is in someone's watchlist
+        if self.watchlist.is_watchlist_wallet(wallet_addr):
+            logger.info(f"📨 Wallet also in watchlist - sending DM alerts")
+            await self._send_watchlist_buy_alert(wallet_addr, parsed)
 
     async def _send_qualified_alert(self, wallet_addr: str, wallet_data: Dict, parsed: Dict):
         """Send alert to public channel for qualified wallet buys with SoulScanner button."""

@@ -14,8 +14,8 @@ from config.settings import HELIUS_FREE_KEYS
 
 logger = logging.getLogger(__name__)
 
-# SoulScanner bot link
-SOULSCANNER_BOT = "https://t.me/SoulScannerBot?start="
+# SoulScanner bot link (@soul_scanner_bot)
+SOULSCANNER_BOT = "https://t.me/soul_scanner_bot/"
 
 
 async def fetch_live_balance(wallet_address: str) -> Optional[float]:

@@ -4,10 +4,12 @@ Transaction history fetching and websocket monitoring
 With API key rotation for maximum throughput
 
 KEY POOLS (configured in config/settings.py):
-- MONITORING_KEYS (3 keys): Real-time buy alert monitoring (realtime_bot.py)
-- CRON_KEYS (10 keys): Background jobs (pipeline, insider, cluster, cleanup)
+- BUY_ALERT_KEYS (5 keys): Real-time buy alert monitoring (every 30 sec)
+- INSIDER_DETECTION_KEYS (11 keys): Insider detection (hourly, heavy holder checks)
+- PIPELINE_KEYS (6 keys): Main pipeline (hourly, 146 wallets)
+- CLUSTER_KEYS (3 keys): Cluster analysis (every 2 hours)
 
-Total capacity: 13 keys = ~1300 req/sec (100 req/sec per key)
+Total capacity: 25 keys = independent pools, no conflicts!
 """
 import asyncio
 import json
@@ -25,6 +27,11 @@ from config.settings import (
     HELIUS_PREMIUM_KEY,
     HELIUS_RPC_URL,
     HELIUS_WS_URL,
+    # Task-specific key pools
+    BUY_ALERT_KEYS,
+    INSIDER_DETECTION_KEYS,
+    PIPELINE_KEYS,
+    CLUSTER_KEYS,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,29 +41,24 @@ class HeliusRotator:
     """
     Rotate between multiple Helius API keys to maximize throughput.
 
-    Supports two modes:
-    - FREE mode: Rotates between free keys (for background jobs)
-    - PREMIUM mode: Uses single premium key (for real-time monitoring)
+    Supports task-specific key pools:
+    - BUY_ALERT_KEYS (5 keys): Real-time monitoring
+    - INSIDER_DETECTION_KEYS (11 keys): Insider detection
+    - PIPELINE_KEYS (6 keys): Main pipeline
+    - CLUSTER_KEYS (3 keys): Cluster analysis
     """
 
-    def __init__(self, api_keys: List[str] = None, use_premium: bool = False):
+    def __init__(self, api_keys: List[str] = None, pool_name: str = "default"):
         """
-        Initialize the rotator.
+        Initialize the rotator with a specific key pool.
 
         Args:
             api_keys: List of API keys to rotate through
-            use_premium: If True, use MONITORING keys pool (3 keys for real-time)
+            pool_name: Name of the pool for logging
         """
-        self.use_premium = use_premium
-
-        if use_premium:
-            # Use all 3 monitoring keys for real-time buy alerts
-            self.api_keys = HELIUS_MONITORING_KEYS
-            logger.info(f"HeliusRotator initialized with {len(self.api_keys)} MONITORING keys (real-time mode)")
-        else:
-            # Use all 10 cron keys for background jobs
-            self.api_keys = api_keys or HELIUS_FREE_KEYS
-            logger.info(f"HeliusRotator initialized with {len(self.api_keys)} CRON keys (background mode)")
+        self.pool_name = pool_name
+        self.api_keys = api_keys or PIPELINE_KEYS  # Default to pipeline keys
+        logger.info(f"HeliusRotator [{pool_name}] initialized with {len(self.api_keys)} keys")
 
         self.current_index = 0
         self.request_counts: Dict[str, int] = {key: 0 for key in self.api_keys}
@@ -128,16 +130,28 @@ class HeliusRotator:
 
 
 # =============================================================================
-# Global rotator instances (separate pools for different workloads)
+# Global rotator instances (TASK-SPECIFIC key pools - no conflicts!)
 # =============================================================================
 
-# CRON rotator (10 keys) - for background jobs
-# Used by: pipeline, insider detection, cluster analysis, cleanup, holder detection
-helius_rotator = HeliusRotator(use_premium=False)
+# BUY ALERT rotator (5 keys) - Real-time buy alert monitoring (every 30 sec)
+# Used by: realtime_bot.py polling loop
+helius_buy_alert_rotator = HeliusRotator(api_keys=BUY_ALERT_KEYS, pool_name="BUY_ALERTS")
 
-# MONITORING rotator (3 keys) - for real-time buy alert monitoring
-# Used by: realtime_bot.py polling loop (30-second intervals)
-helius_premium_rotator = HeliusRotator(use_premium=True)
+# INSIDER DETECTION rotator (11 keys) - Insider detection (hourly, heavy holder checks)
+# Used by: launch_tracker.py, run_insider_detection.py
+helius_insider_rotator = HeliusRotator(api_keys=INSIDER_DETECTION_KEYS, pool_name="INSIDER_DETECTION")
+
+# PIPELINE rotator (6 keys) - Main pipeline (hourly, 146 wallets)
+# Used by: run_pipeline.py, orchestrator.py
+helius_pipeline_rotator = HeliusRotator(api_keys=PIPELINE_KEYS, pool_name="PIPELINE")
+
+# CLUSTER rotator (3 keys) - Cluster analysis (every 2 hours)
+# Used by: run_cluster_analysis.py, cluster_detector.py
+helius_cluster_rotator = HeliusRotator(api_keys=CLUSTER_KEYS, pool_name="CLUSTER")
+
+# Legacy aliases for backwards compatibility
+helius_rotator = helius_pipeline_rotator  # Default to pipeline keys
+helius_premium_rotator = helius_buy_alert_rotator  # Alias for realtime_bot
 
 
 class HeliusClient:

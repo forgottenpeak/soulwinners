@@ -17,9 +17,7 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 
 from config.settings import (
-    HELIUS_API_KEY,
-    HELIUS_MONITORING_KEYS,
-    HELIUS_PREMIUM_KEY,
+    BUY_ALERT_KEYS,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHANNEL_ID,
     TELEGRAM_USER_ID,
@@ -27,7 +25,7 @@ from config.settings import (
 )
 from database import get_connection
 from bot.alert_formatter import AlertFormatter, SOULSCANNER_BOT
-from collectors.helius import helius_premium_rotator  # Use PREMIUM key for real-time
+from collectors.helius import helius_buy_alert_rotator  # 5 keys for real-time buy alerts
 
 logger = logging.getLogger(__name__)
 
@@ -410,17 +408,17 @@ class InsiderTracker:
 class RealTimeBot:
     """
     Real-time monitoring bot.
-    - Polls Helius for new transactions using MONITORING_KEYS pool (3 keys)
+    - Polls Helius for new transactions using BUY_ALERT_KEYS pool (5 keys)
     - Only alerts on BUY transactions
     - Filters by transaction age and amount
     - Auto-monitors INSIDER wallets with special alerts
 
-    API Keys: Uses helius_premium_rotator which rotates through HELIUS_MONITORING_KEYS
-    (3 dedicated keys for real-time monitoring, separate from cron job keys)
+    API Keys: Uses helius_buy_alert_rotator which rotates through BUY_ALERT_KEYS
+    (5 dedicated keys for real-time monitoring, separate from other task pools)
     """
 
     def __init__(self):
-        self.rotator = helius_premium_rotator  # Use PREMIUM key for real-time monitoring
+        self.rotator = helius_buy_alert_rotator  # 5 keys for buy alerts
         self.base_url = f"https://api.helius.xyz/v0"
         self.bot = Bot(token=TELEGRAM_BOT_TOKEN)
         self.channel_id = TELEGRAM_CHANNEL_ID

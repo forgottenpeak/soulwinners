@@ -3,6 +3,10 @@
 SoulWinners Pipeline Runner
 Collects and analyzes wallets, adds qualified ones to pool.
 
+API Keys: Uses PIPELINE_KEYS (6 keys) from config/settings.py
+- Dedicated pool for pipeline operations
+- No conflicts with buy alerts, insider detection, or cluster analysis
+
 Usage:
   python3 run_pipeline.py
   python3 run_pipeline.py --target 500

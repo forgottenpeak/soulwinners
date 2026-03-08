@@ -475,7 +475,7 @@ class InsiderTracker:
             conn = get_connection()
             cursor = conn.cursor()
 
-            # Get recent trades from trade_history table
+            # Get recent trades from trade_history table (only buys >= 1.5 SOL)
             cursor.execute("""
                 SELECT
                     COUNT(*) as total_trades,
@@ -485,7 +485,8 @@ class InsiderTracker:
                 FROM trade_history
                 WHERE wallet_address = ?
                 AND timestamp > datetime('now', '-30 days')
-            """, (wallet_address,))
+                AND sol_amount >= ?
+            """, (wallet_address, MIN_BUY_AMOUNT_SOL))
 
             row = cursor.fetchone()
             conn.close()
@@ -1511,6 +1512,10 @@ class RealTimeBot:
             sol_amount = parsed['sol_amount']
             tx_type = parsed['type']
             tx_time = parsed['timestamp']
+
+            # Filter: Only count buys >= 1.5 SOL for analysis
+            if tx_type == 'buy' and sol_amount < MIN_BUY_AMOUNT_SOL:
+                continue  # Skip small buys from analysis
 
             if token not in token_positions:
                 token_positions[token] = {

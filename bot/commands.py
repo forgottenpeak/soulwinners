@@ -37,7 +37,7 @@ from bot.utils import (
     parse_remove_index,
     is_valid_solana_address,
 )
-from bot.realtime_bot import get_wallet_from_alert_cache, get_wallet_from_truncated
+from bot.realtime_bot import get_wallet_from_alert_cache, get_wallet_from_truncated, MIN_BUY_AMOUNT_SOL
 from bot.trader_commands import register_trader_commands, ADMIN_USER_ID, SOULWINNERS_DB, update_user_menu
 from utils.statistics import calculate_pool_robust_stats, robust_stats
 
@@ -1581,21 +1581,28 @@ _Current status: {status}_"""
                             sol_amount -= abs(nt.get('amount', 0)) / 1e9
 
                     if to_wallet == wallet:  # Buy
-                        token_positions[mint]['sol_spent'] += abs(sol_amount)
+                        # Only count buys >= 1.5 SOL for analysis
+                        if abs(sol_amount) >= MIN_BUY_AMOUNT_SOL:
+                            token_positions[mint]['sol_spent'] += abs(sol_amount)
                     elif from_wallet == wallet:  # Sell
-                        token_positions[mint]['sol_earned'] += abs(sol_amount)
+                        # Only count sells for positions that had qualifying buys
+                        if token_positions[mint]['sol_spent'] > 0:
+                            token_positions[mint]['sol_earned'] += abs(sol_amount)
 
-            # Calculate stats
+            # Calculate stats - only positions with qualifying buys (>= 1.5 SOL)
             total_spent = 0
             total_earned = 0
             wins = 0
             closed_trades = 0
+            qualifying_positions = 0
 
             for token, pos in token_positions.items():
                 spent = pos['sol_spent']
                 earned = pos['sol_earned']
 
-                if spent > 0:
+                # Only count positions where buy was >= 1.5 SOL
+                if spent >= MIN_BUY_AMOUNT_SOL:
+                    qualifying_positions += 1
                     total_spent += spent
 
                     if earned > 0:  # Closed position
@@ -1605,7 +1612,7 @@ _Current status: {status}_"""
                         if earned > spent:
                             wins += 1
 
-            stats['trades'] = len(token_positions)
+            stats['trades'] = qualifying_positions
 
             if closed_trades > 0:
                 stats['win_rate'] = wins / closed_trades

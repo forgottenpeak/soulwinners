@@ -1184,16 +1184,105 @@ class RealTimeBot:
         if not subscribers:
             return
 
-        # Get token info
+        # Get token info (extended metrics)
         token_info = await self._get_token_info(token_address)
         token_symbol = token_info.get('symbol', '???')
+        token_name = token_info.get('name', 'Unknown')
+        market_cap = token_info.get('market_cap', 0)
+        liquidity = token_info.get('liquidity', 0)
+        holders = token_info.get('holders', 0)
+        token_age_hours = token_info.get('token_age_hours', 0)
+        volume_5m = token_info.get('volume_5m', 0)
+        volume_1h = token_info.get('volume_1h', 0)
+        volume_24h = token_info.get('volume_24h', 0)
+        buys_5m = token_info.get('buys_5m', 0)
+        sells_5m = token_info.get('sells_5m', 0)
+        price_change_5m = token_info.get('price_change_5m', 0)
+
+        # Get SOL price for USD values
+        sol_price = await self.price_service.get_sol_price()
+        usd_value = sol_amount * sol_price
+
+        # Get wallet performance from recent trades
+        recent_trades = await self._get_recent_trades(wallet_addr)
+
+        # Calculate wallet performance stats
+        total_trades = len(recent_trades)
+        wins = sum(1 for t in recent_trades if t.get('pnl_percent', 0) > 0)
+        losses = sum(1 for t in recent_trades if t.get('pnl_percent', 0) < 0)
+        win_rate = wins / total_trades if total_trades > 0 else 0
+
+        # Average ROI
+        avg_roi = 0
+        if recent_trades:
+            rois = [t.get('pnl_percent', 0) for t in recent_trades if t.get('pnl_percent', 0) != 0]
+            avg_roi = sum(rois) / len(rois) if rois else 0
+
+        # Best trade
+        best_trade = None
+        best_roi = 0
+        for t in recent_trades:
+            pnl = t.get('pnl_percent', 0)
+            if pnl > best_roi:
+                best_roi = pnl
+                best_trade = t.get('token_symbol', '???')
+
+        # Recent streak (last 5 trades)
+        recent_5 = recent_trades[:5] if len(recent_trades) >= 5 else recent_trades
+        streak_icons = []
+        for t in recent_5:
+            pnl = t.get('pnl_percent', 0)
+            if pnl > 0:
+                streak_icons.append("✅")
+            elif pnl < 0:
+                streak_icons.append("❌")
+            else:
+                streak_icons.append("⏳")  # Open position
+        streak_str = "".join(streak_icons) if streak_icons else "N/A"
+        streak_wins = streak_icons.count("✅")
+        streak_total = len([s for s in streak_icons if s != "⏳"])
+
+        # Last trade time
+        last_trade_str = "N/A"
+        if recent_trades and recent_trades[0].get('last_tx_time'):
+            last_time = recent_trades[0]['last_tx_time']
+            age_seconds = datetime.now().timestamp() - last_time
+            if age_seconds < 3600:
+                last_trade_str = f"{int(age_seconds / 60)}m ago"
+            elif age_seconds < 86400:
+                last_trade_str = f"{int(age_seconds / 3600)}h ago"
+            else:
+                last_trade_str = f"{int(age_seconds / 86400)}d ago"
+
+        # Format token age
+        if token_age_hours < 1:
+            age_str = f"{int(token_age_hours * 60)}m"
+        elif token_age_hours < 24:
+            age_str = f"{token_age_hours:.1f}h"
+        else:
+            age_str = f"{token_age_hours / 24:.1f}d"
+
+        # Calculate liquidity ratio
+        liq_ratio = (liquidity / market_cap * 100) if market_cap > 0 else 0
+
+        # Calculate momentum (5m vs 1h volume)
+        momentum = 0
+        if volume_1h > 0:
+            momentum = ((volume_5m * 12) - volume_1h) / volume_1h * 100  # Annualize 5m to compare
+
+        # Format numbers helper
+        def fmt_num(n):
+            if n >= 1_000_000:
+                return f"${n/1_000_000:.1f}M"
+            elif n >= 1_000:
+                return f"${n/1_000:.0f}K"
+            return f"${n:.0f}"
 
         logger.info(f"🔔 WATCHLIST BUY: {wallet_addr[:12]}... bought {sol_amount:.2f} SOL of ${token_symbol}")
 
         # Send personalized alert to each subscriber
         for sub in subscribers:
             user_id = sub['user_id']
-            win_rate = sub.get('win_rate', 0)
             added_date = sub.get('added_date', '')
             nickname = sub.get('nickname', '')
 
@@ -1203,31 +1292,42 @@ class RealTimeBot:
                 try:
                     added_dt = datetime.fromisoformat(added_date.replace('Z', '+00:00'))
                     days = (datetime.now() - added_dt).days
-                    days_ago = f"{days} day{'s' if days != 1 else ''} ago"
+                    days_ago = f"{days}d"
                 except:
-                    days_ago = added_date[:10]
+                    days_ago = "?"
 
-            # Always show FULL wallet address in watchlist DM alerts
-            wallet_display = f"`{wallet_addr}`"
+            # Truncated wallet display for cleaner look
+            wallet_display = f"`{wallet_addr[:5]}...{wallet_addr[-5:]}`"
 
-            # Build alert message with full wallet
-            message = f"""🔔 **WATCHLIST BUY**
+            # Best trade display
+            best_str = f"+{best_roi:.0f}% ({best_trade})" if best_trade else "N/A"
+
+            # Build enhanced alert message
+            message = f"""🔔 **WATCHLIST BUY**{f' ({nickname})' if nickname else ''}
 
 👛 Wallet: {wallet_display}
-💰 Bought **{sol_amount:.2f} SOL** of **${token_symbol}**
+💰 Bought **{sol_amount:.2f} SOL** (~${usd_value:.0f}) of **${token_symbol}**
 
-📊 **Wallet Stats:**
-├ Win Rate: {win_rate*100:.0f}%
-└ Added: {days_ago}
+📊 **WALLET PERFORMANCE:**
+├─ Win Rate: {win_rate*100:.0f}% ({wins}/{total_trades} trades)
+├─ Avg ROI: {avg_roi:+.0f}% per trade
+├─ Best Trade: {best_str}
+├─ Recent: {streak_str} ({streak_wins}/{streak_total} last)
+└─ Last Trade: {last_trade_str}
 
-🪙 **Token:** ${token_symbol}
-├ Market Cap: ${token_info.get('market_cap', 0):,.0f}
-└ Liquidity: ${token_info.get('liquidity', 0):,.0f}
+🪙 **TOKEN METRICS:**
+├─ MC: {fmt_num(market_cap)} | Liq: {fmt_num(liquidity)} ({liq_ratio:.0f}%)
+├─ Holders: {holders if holders else 'N/A'} | Age: {age_str}
+├─ Vol 5m: {fmt_num(volume_5m)} | 1h: {fmt_num(volume_1h)} | 24h: {fmt_num(volume_24h)}
+├─ Activity: {buys_5m} buys / {sells_5m} sells (5m)
+└─ Momentum: {momentum:+.0f}% | Price: {price_change_5m:+.1f}% (5m)
+
+💵 **ENTRY:**
+├─ Position: ${usd_value:.0f} USD ({sol_amount:.2f} SOL)
+├─ SOL Price: ${sol_price:.2f}
+└─ Added: {days_ago} ago
 
 🔗 [DexScreener](https://dexscreener.com/solana/{token_address}) | [Wallet](https://solscan.io/account/{wallet_addr})"""
-
-            if nickname:
-                message = message.replace("WATCHLIST BUY", f"WATCHLIST BUY ({nickname})")
 
             # Get SoulScanner buttons for buy alerts
             reply_markup = self.formatter.get_buy_alert_buttons(token_address)

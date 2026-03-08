@@ -157,13 +157,12 @@ class CommandBot:
         # Personalized menus are set per-user in cmd_start via set_user_menu()
         default_commands = [
             BotCommand("start", "Welcome to SoulWinners"),
-            BotCommand("help", "How it works"),
         ]
 
         try:
             # Set global default menu
             await self.application.bot.set_my_commands(default_commands)
-            logger.info("Set default bot menu (2 commands)")
+            logger.info("Set default bot menu (1 command)")
         except Exception as e:
             logger.error(f"Failed to set default bot commands: {e}")
 

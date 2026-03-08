@@ -15,7 +15,7 @@ from config.settings import HELIUS_FREE_KEYS
 logger = logging.getLogger(__name__)
 
 # SoulScanner bot link (@soul_scanner_bot)
-SOULSCANNER_BOT = "https://t.me/soul_scanner_bot/"
+SOULSCANNER_BOT = "https://t.me/soul_scanner_bot"
 
 
 async def fetch_live_balance(wallet_address: str) -> Optional[float]:
@@ -381,16 +381,12 @@ class AlertFormatter:
             return f"{int(diff / 604800)}w ago"
 
     def get_buy_alert_buttons(self, token_address: str) -> InlineKeyboardMarkup:
-        """Generate inline buttons for BUY alerts (qualified, insider, watchlist)."""
+        """Generate inline button for BUY alerts (qualified, insider, watchlist)."""
         buttons = [
             [
                 InlineKeyboardButton(
                     "🔒 CA ↗",
-                    url=f"https://solscan.io/token/{token_address}"
-                ),
-                InlineKeyboardButton(
-                    "👁 Scan ↗",
-                    url=f"{SOULSCANNER_BOT}{token_address}"
+                    url=f"{SOULSCANNER_BOT}?start={token_address}"
                 ),
             ]
         ]
@@ -442,16 +438,12 @@ from ⚡ Entry Signal
 
 {emoji_rows}"""
 
-        # Build buttons
+        # Build buttons - single CA button to SoulScanner
         buttons = [
             [
                 InlineKeyboardButton(
                     "🔒 CA ↗",
-                    url=f"https://solscan.io/token/{token_address}"
-                ),
-                InlineKeyboardButton(
-                    "👁 Scan ↗",
-                    url=f"{SOULSCANNER_BOT}{token_address}"
+                    url=f"{SOULSCANNER_BOT}?start={token_address}"
                 ),
             ]
         ]

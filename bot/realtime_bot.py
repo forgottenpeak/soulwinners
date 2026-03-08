@@ -404,6 +404,125 @@ class InsiderTracker:
         """Get insider info for a wallet."""
         return self.insider_wallets.get(wallet_address)
 
+    @staticmethod
+    def calculate_insider_confidence(pattern: str, trades_data: Dict = None) -> int:
+        """
+        Calculate dynamic confidence score based on pattern type and trade history.
+
+        Base scores by pattern:
+        - Airdrop Insider: 85 (highest - direct insider access)
+        - Migration Sniper: 75 (migration sniping requires inside info)
+        - Launch Sniper: 65 (first buyer patterns)
+        - Early Bird Hunter: 60 (consistent early entries)
+        - Unknown: 50 (baseline)
+
+        Adjustments:
+        - +10 for high trade frequency (>10 trades)
+        - +10 for high win rate (>60%)
+        - -10 for inactivity (>7 days since last trade)
+
+        Returns:
+            Confidence score 0-100
+        """
+        base_scores = {
+            'Airdrop Insider': 85,
+            'Migration Sniper': 75,
+            'Launch Sniper': 65,
+            'Early Bird Hunter': 60,
+            'Unknown': 50,
+        }
+
+        confidence = base_scores.get(pattern, 50)
+
+        if trades_data:
+            # Boost for trade frequency
+            total_trades = trades_data.get('total_trades', 0)
+            if total_trades >= 20:
+                confidence += 15
+            elif total_trades >= 10:
+                confidence += 10
+            elif total_trades >= 5:
+                confidence += 5
+
+            # Boost for win rate
+            win_rate = trades_data.get('win_rate', 0)
+            if win_rate >= 0.7:
+                confidence += 15
+            elif win_rate >= 0.6:
+                confidence += 10
+            elif win_rate >= 0.5:
+                confidence += 5
+
+            # Penalty for inactivity
+            days_since_trade = trades_data.get('days_since_last_trade', 0)
+            if days_since_trade > 14:
+                confidence -= 15
+            elif days_since_trade > 7:
+                confidence -= 10
+
+        return min(max(confidence, 0), 100)
+
+    def get_insider_real_stats(self, wallet_address: str) -> Dict:
+        """
+        Get real stats for insider from trade history.
+
+        Returns:
+            Dict with win_rate, avg_roi, total_trades, days_since_last_trade
+        """
+        from datetime import datetime, timedelta
+
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            # Get recent trades from trade_history table
+            cursor.execute("""
+                SELECT
+                    COUNT(*) as total_trades,
+                    SUM(CASE WHEN roi > 0 THEN 1 ELSE 0 END) as wins,
+                    AVG(roi) as avg_roi,
+                    MAX(timestamp) as last_trade
+                FROM trade_history
+                WHERE wallet_address = ?
+                AND timestamp > datetime('now', '-30 days')
+            """, (wallet_address,))
+
+            row = cursor.fetchone()
+            conn.close()
+
+            if row and row[0] > 0:
+                total = row[0]
+                wins = row[1] or 0
+                avg_roi = row[2] or 0
+                last_trade = row[3]
+
+                # Calculate days since last trade
+                days_since = 0
+                if last_trade:
+                    try:
+                        last_dt = datetime.fromisoformat(last_trade.replace('Z', '+00:00'))
+                        days_since = (datetime.now() - last_dt.replace(tzinfo=None)).days
+                    except:
+                        days_since = 0
+
+                return {
+                    'total_trades': total,
+                    'win_rate': wins / total if total > 0 else 0,
+                    'avg_roi': avg_roi,
+                    'days_since_last_trade': days_since
+                }
+
+        except Exception as e:
+            logger.debug(f"Could not get real stats for {wallet_address[:12]}...: {e}")
+
+        # Return defaults if no data
+        return {
+            'total_trades': 0,
+            'win_rate': 0,
+            'avg_roi': 0,
+            'days_since_last_trade': 0
+        }
+
 
 class RealTimeBot:
     """
@@ -901,9 +1020,20 @@ class RealTimeBot:
         # Get insider info
         insider_info = self.insider_tracker.get_insider_info(wallet_addr)
         pattern = insider_info.get('pattern', 'Unknown') if insider_info else 'Unknown'
-        confidence = insider_info.get('confidence', 0) if insider_info else 0
-        win_rate = insider_info.get('win_rate', 0) if insider_info else 0
-        avg_roi = insider_info.get('avg_roi', 0) if insider_info else 0
+
+        # Get real stats from trade history
+        real_stats = self.insider_tracker.get_insider_real_stats(wallet_addr)
+
+        # Calculate dynamic confidence based on pattern and real stats
+        confidence = InsiderTracker.calculate_insider_confidence(pattern, real_stats)
+
+        # Use real stats if available, otherwise fall back to DB values
+        if real_stats['total_trades'] > 0:
+            win_rate = real_stats['win_rate']
+            avg_roi = real_stats['avg_roi']
+        else:
+            win_rate = insider_info.get('win_rate', 0) if insider_info else 0
+            avg_roi = insider_info.get('avg_roi', 0) if insider_info else 0
 
         # Get token info from DexScreener (now with extended metrics)
         token_info = await self._get_token_info(token_address)

@@ -233,6 +233,78 @@ def format_time_ago(timestamp: datetime) -> str:
         return f"{int(diff/604800)}w ago"
 
 
+def find_wallet_from_truncated_in_db(text: str) -> Optional[str]:
+    """
+    Extract truncated wallet pattern and search database for full address.
+
+    Pattern: ABC12...XYZ89 (5 chars ... 5 chars)
+    Searches insider_pool and qualified_wallets tables.
+
+    Returns:
+        Full wallet address if found, None otherwise
+    """
+    from database import get_connection
+
+    # Look for truncated pattern: 5 base58 chars + ... + 5 base58 chars
+    truncated_pattern = r'([1-9A-HJ-NP-Za-km-z]{5})\.{3}([1-9A-HJ-NP-Za-km-z]{5})'
+    match = re.search(truncated_pattern, text)
+
+    if not match:
+        return None
+
+    prefix = match.group(1)
+    suffix = match.group(2)
+    truncated = f"{prefix}...{suffix}"
+
+    logger.info(f"Found truncated wallet pattern: {truncated}")
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # Check insider_pool first (higher priority)
+        cursor.execute("""
+            SELECT wallet_address FROM insider_pool
+            WHERE wallet_address LIKE ? AND wallet_address LIKE ?
+            LIMIT 1
+        """, (f"{prefix}%", f"%{suffix}"))
+
+        result = cursor.fetchone()
+        if result:
+            wallet = result[0]
+            logger.info(f"Found wallet in insider_pool: {wallet[:12]}...")
+            conn.close()
+            return wallet
+
+        # Check qualified_wallets
+        cursor.execute("""
+            SELECT wallet_address FROM qualified_wallets
+            WHERE wallet_address LIKE ? AND wallet_address LIKE ?
+            LIMIT 1
+        """, (f"{prefix}%", f"%{suffix}"))
+
+        result = cursor.fetchone()
+        if result:
+            wallet = result[0]
+            logger.info(f"Found wallet in qualified_wallets: {wallet[:12]}...")
+            conn.close()
+            return wallet
+
+        conn.close()
+        logger.warning(f"Truncated wallet {truncated} not found in database")
+        return None
+
+    except Exception as e:
+        logger.error(f"Database search failed for truncated wallet: {e}")
+        return None
+
+
+def has_truncated_wallet_pattern(text: str) -> bool:
+    """Check if text contains a truncated wallet pattern."""
+    truncated_pattern = r'[1-9A-HJ-NP-Za-km-z]{5}\.{3}[1-9A-HJ-NP-Za-km-z]{5}'
+    return bool(re.search(truncated_pattern, text))
+
+
 def extract_wallet_from_bot_alert(text: str) -> Optional[str]:
     """
     Extract wallet address from THIS BOT's own alert messages.

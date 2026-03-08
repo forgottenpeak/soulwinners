@@ -29,6 +29,8 @@ from collectors.helius import helius_rotator
 from bot.utils import (
     extract_wallet_from_text,
     extract_wallet_from_bot_alert,
+    find_wallet_from_truncated_in_db,
+    has_truncated_wallet_pattern,
     truncate_wallet,
     format_wallet_for_user,
     format_stats,
@@ -661,12 +663,28 @@ Contact admin to request access.
             logger.info(f"Parsing external alert, found: {wallet[:12] if wallet else 'None'}...")
 
         if not wallet:
-            await update.message.reply_text(
-                "Could not find a valid Solana wallet address in that message.\n\n"
-                "Make sure the alert contains a wallet address (not token address).\n"
-                "Token addresses ending in 'pump' are filtered out."
-            )
-            return
+            # Try to find truncated wallet and search database
+            logger.info("No full wallet found, trying truncated pattern search...")
+            wallet = find_wallet_from_truncated_in_db(text)
+
+            if wallet:
+                logger.info(f"Found wallet from truncated pattern in DB: {wallet[:12]}...")
+            elif has_truncated_wallet_pattern(text):
+                # Found truncated pattern but no match in database
+                await update.message.reply_text(
+                    "⚠️ Found truncated wallet but it's not in our pool.\n\n"
+                    "This wallet hasn't been tracked yet.\n"
+                    "To add manually: `/add` reply to a message with the full wallet address."
+                )
+                return
+            else:
+                # No wallet pattern found at all
+                await update.message.reply_text(
+                    "❌ No wallet found in message.\n\n"
+                    "Forward an alert and reply with /add, or use:\n"
+                    "`/add` reply to message with full wallet address"
+                )
+                return
 
         # Log what we found for debugging
         logger.info(f"Final extracted wallet: {wallet}")

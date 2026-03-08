@@ -87,6 +87,7 @@ class CommandBot:
         self.application.add_handler(CommandHandler("leaderboard", self.cmd_leaderboard))
         self.application.add_handler(CommandHandler("stats", self.cmd_stats))
         self.application.add_handler(CommandHandler("help", self.cmd_help))
+        self.application.add_handler(CommandHandler("userguide", self.cmd_userguide))
         self.application.add_handler(CommandHandler("register", self.cmd_register))
         self.application.add_handler(CommandHandler("settings", self.cmd_settings))
         self.application.add_handler(CommandHandler("cron", self.cmd_cron))
@@ -107,6 +108,8 @@ class CommandBot:
         self.application.add_handler(CommandHandler("remove", self.cmd_remove_wallet))  # Alias
         self.application.add_handler(CommandHandler("removewallet", self.cmd_remove_wallet))  # No underscore alias
         self.application.add_handler(CommandHandler("label", self.cmd_label))
+        self.application.add_handler(CommandHandler("promote", self.cmd_promote))
+        self.application.add_handler(CommandHandler("demote", self.cmd_demote))
         self.application.add_handler(CommandHandler("summary", self.cmd_summary))
         self.application.add_handler(CommandHandler("premium", self.cmd_premium))
         self.application.add_handler(CommandHandler("buttons", self.cmd_buttons))
@@ -599,10 +602,10 @@ Contact admin to request access.
 
         user_id = update.effective_user.id
 
-        # Check if user is admin or premium
-        if not self._is_premium(user_id):
+        # Check if user is authorized
+        if not self._is_authorized_trader(user_id) and not self._is_admin(user_id):
             await update.message.reply_text(
-                "This feature is for premium users only.\n"
+                "🔒 This feature requires authorization.\n"
                 "Contact admin for access."
             )
             return
@@ -740,15 +743,16 @@ Use /watchlist to see all your watched wallets."""
         logger.info(f"User {user_id} added wallet {wallet[:12]}... to watchlist")
 
     async def cmd_watchlist(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show user's personal watchlist."""
+        """Show user's personal watchlist with quality status."""
         if not self._is_private(update):
             return
 
         user_id = update.effective_user.id
 
-        if not self._is_premium(user_id):
+        # Allow authorized users AND admin (not just premium)
+        if not self._is_authorized_trader(user_id) and not self._is_admin(user_id):
             await update.message.reply_text(
-                "This feature is for premium users only.\n"
+                "🔒 This feature requires authorization.\n"
                 "Contact admin for access."
             )
             return
@@ -776,16 +780,25 @@ Use /watchlist to see all your watched wallets."""
             """)
             conn.commit()
 
+            # Get watchlist wallets
             cursor.execute("""
-                SELECT wallet_address, win_rate, roi, total_trades, added_date
+                SELECT wallet_address, win_rate, roi, total_trades, added_date, notes
                 FROM user_watchlists
                 WHERE user_id = ?
                 ORDER BY added_date DESC
             """, (user_id,))
             wallets = cursor.fetchall()
+
+            # Also check if any are in copy_pool (being actively copied)
+            cursor.execute("""
+                SELECT wallet_address FROM copy_pool
+                WHERE user_id = ? AND enabled = 1
+            """, (user_id,))
+            copy_pool_wallets = set(row[0] for row in cursor.fetchall())
+
             conn.close()
 
-            logger.info(f"Found {len(wallets)} wallets for user {user_id}")
+            logger.info(f"Found {len(wallets)} wallets in watchlist for user {user_id}")
 
         except Exception as e:
             logger.error(f"Database error in watchlist: {e}")
@@ -794,45 +807,62 @@ Use /watchlist to see all your watched wallets."""
 
         if not wallets:
             await update.message.reply_text(
-                "📝 **Your Watchlist is Empty**\n\n"
-                "To start tracking wallets:\n"
-                "1. Forward a buy alert to this chat\n"
-                "2. Reply to that message with /add\n\n"
-                "The bot will analyze the wallet and add it to your watchlist.",
+                "📋 **Your Watchlist is Empty**\n\n"
+                "To add wallets:\n"
+                "• `/add WALLET_ADDRESS` \\- Add directly\n"
+                "• Reply to a buy alert with `/add`\n\n"
+                "Watchlist wallets are monitored but NOT copied\\.\n"
+                "Use `/enable WALLET` to add to copy pool\\.",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
 
         is_admin = self._is_admin(user_id)
 
-        message = f"**Your Watchlist** ({len(wallets)} wallets)\n\n"
+        message = f"📋 **Your Watchlist** \\({len(wallets)} wallets\\)\n\n"
 
-        for i, (wallet, win_rate, roi, trades, added) in enumerate(wallets, 1):
-            wallet_display = format_wallet_for_user(wallet, is_admin)
+        for i, row in enumerate(wallets, 1):
+            wallet = row[0]
+            win_rate = row[1] or 0
+            roi = row[2] or 0
+            trades = row[3] or 0
+            notes = row[5] or ""
 
-            # Win rate emoji - ensure values are not None
-            win_rate = win_rate or 0
-            roi = roi or 0
-            trades = trades or 0
+            # Truncate wallet for display
+            wallet_truncated = f"{wallet[:6]}\\.\\.\\{wallet[-4:]}"
 
-            if win_rate >= 0.6:
+            # Quality check: >= 60% win rate passes
+            quality_passed = win_rate >= 0.60
+            quality_emoji = "✅" if quality_passed else "❌"
+
+            # Win rate color
+            if win_rate >= 0.65:
                 wr_emoji = "🟢"
-            elif win_rate >= 0.4:
+            elif win_rate >= 0.55:
                 wr_emoji = "🟡"
             else:
                 wr_emoji = "🔴"
 
-            message += f"**{i}.** {wallet_display}\n"
-            message += f"   {wr_emoji} WR: {win_rate*100:.0f}% | ROI: {roi:+.0f}% | Trades: {trades}\n"
+            # Check if in copy pool
+            in_copy_pool = wallet in copy_pool_wallets
+            copy_status = "📈 COPYING" if in_copy_pool else "👁 Watching"
 
-            # Add links for admin
-            if is_admin:
-                message += f"   [Solscan](https://solscan.io/account/{wallet}) | "
-                message += f"[Birdeye](https://birdeye.so/profile/{wallet}?chain=solana)\n"
+            message += f"**{i}\\.** `{wallet_truncated}`\n"
+            message += f"   {wr_emoji} WR: {win_rate*100:.0f}% \\| ROI: {roi:+.0f}% \\| {trades} trades\n"
+            message += f"   {quality_emoji} Quality \\| {copy_status}\n"
+
+            if notes:
+                message += f"   📝 {notes}\n"
 
             message += "\n"
 
-        message += "_Use /remove\\_wallet [number] to remove_"
+        message += "**Commands:**\n"
+        message += "/remove NUMBER \\- Remove from watchlist\n"
+        message += "/enable WALLET \\- Add to copy pool\n"
+        message += "/promote WALLET \\- Move to copy pool\n"
+
+        if is_admin:
+            message += "/wallet TRUNCATED \\- Reveal full address"
 
         # Split if too long
         if len(message) > 4000:
@@ -859,9 +889,9 @@ Use /watchlist to see all your watched wallets."""
 
         user_id = update.effective_user.id
 
-        if not self._is_premium(user_id):
+        if not self._is_authorized_trader(user_id) and not self._is_admin(user_id):
             await update.message.reply_text(
-                "This feature is for premium users only."
+                "🔒 This feature requires authorization."
             )
             return
 
@@ -927,6 +957,208 @@ Use /watchlist to see all your watched wallets."""
             logger.error(f"Remove wallet error: {e}")
             await update.message.reply_text(f"Error removing wallet: {e}")
 
+    async def cmd_promote(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Promote a watchlist wallet to copy pool (enable auto-trading)."""
+        if not self._is_private(update):
+            return
+
+        user_id = update.effective_user.id
+
+        if not self._is_authorized_trader(user_id) and not self._is_admin(user_id):
+            await update.message.reply_text("🔒 This feature requires authorization.")
+            return
+
+        # Parse wallet address from command
+        text = update.message.text or ""
+        parts = text.split()
+
+        if len(parts) < 2:
+            await update.message.reply_text(
+                "**Usage:** /promote WALLET\\_ADDRESS\n\n"
+                "Moves a wallet from watchlist to copy pool\\.\n"
+                "The wallet will start being auto\\-traded\\.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        wallet_input = parts[1].strip()
+
+        # Try to resolve truncated wallet
+        wallet_addr = None
+        if '...' in wallet_input or len(wallet_input) < 20:
+            # Truncated format - look up in watchlist
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT wallet_address FROM user_watchlists
+                    WHERE user_id = ? AND (
+                        wallet_address LIKE ? OR wallet_address LIKE ?
+                    )
+                """, (user_id, f"{wallet_input[:6]}%", f"%{wallet_input[-4:]}"))
+                row = cursor.fetchone()
+                conn.close()
+                if row:
+                    wallet_addr = row[0]
+            except:
+                pass
+        else:
+            wallet_addr = wallet_input
+
+        if not wallet_addr or len(wallet_addr) < 32:
+            await update.message.reply_text(
+                "❌ Wallet not found in your watchlist\\.\n"
+                "Use /watchlist to see your wallets\\.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        logger.info(f"User {user_id} promoting wallet {wallet_addr[:12]}... to copy pool")
+
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            # Check if wallet is in watchlist
+            cursor.execute("""
+                SELECT 1 FROM user_watchlists
+                WHERE user_id = ? AND wallet_address = ?
+            """, (user_id, wallet_addr))
+
+            if not cursor.fetchone():
+                conn.close()
+                await update.message.reply_text(
+                    "❌ Wallet not in your watchlist\\.\n"
+                    "Add it first with /add WALLET",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+
+            # Add to copy_pool (or update if exists)
+            cursor.execute("""
+                INSERT INTO copy_pool (user_id, wallet_address, enabled)
+                VALUES (?, ?, 1)
+                ON CONFLICT(user_id, wallet_address) DO UPDATE SET
+                    enabled = 1,
+                    demotion_reason = NULL,
+                    demoted_at = NULL,
+                    auto_demoted = 0
+            """, (user_id, wallet_addr))
+            conn.commit()
+            conn.close()
+
+            wallet_display = f"{wallet_addr[:6]}...{wallet_addr[-4:]}"
+
+            await update.message.reply_text(
+                f"✅ **Wallet Promoted to Copy Pool**\n\n"
+                f"Wallet: `{wallet_display}`\n\n"
+                f"This wallet will now be auto\\-traded\\.\n"
+                f"Use /copylist to see all active wallets\\.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            logger.info(f"User {user_id} promoted wallet {wallet_addr[:12]}... to copy pool")
+
+        except Exception as e:
+            logger.error(f"Promote wallet error: {e}")
+            await update.message.reply_text(f"Error: {e}")
+
+    async def cmd_demote(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Demote a copy pool wallet to watchlist (stop auto-trading)."""
+        if not self._is_private(update):
+            return
+
+        user_id = update.effective_user.id
+
+        if not self._is_authorized_trader(user_id) and not self._is_admin(user_id):
+            await update.message.reply_text("🔒 This feature requires authorization.")
+            return
+
+        # Parse wallet address from command
+        text = update.message.text or ""
+        parts = text.split()
+
+        if len(parts) < 2:
+            await update.message.reply_text(
+                "**Usage:** /demote WALLET\\_ADDRESS\n\n"
+                "Moves a wallet from copy pool to watchlist\\.\n"
+                "The wallet will no longer be auto\\-traded\\.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        wallet_input = parts[1].strip()
+
+        # Try to resolve truncated wallet
+        wallet_addr = None
+        if '...' in wallet_input or len(wallet_input) < 20:
+            # Truncated format - look up in copy pool
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT wallet_address FROM copy_pool
+                    WHERE user_id = ? AND enabled = 1 AND (
+                        wallet_address LIKE ? OR wallet_address LIKE ?
+                    )
+                """, (user_id, f"{wallet_input[:6]}%", f"%{wallet_input[-4:]}"))
+                row = cursor.fetchone()
+                conn.close()
+                if row:
+                    wallet_addr = row[0]
+            except:
+                pass
+        else:
+            wallet_addr = wallet_input
+
+        if not wallet_addr or len(wallet_addr) < 32:
+            await update.message.reply_text(
+                "❌ Wallet not found in your copy pool\\.\n"
+                "Use /copylist to see active wallets\\.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        logger.info(f"User {user_id} demoting wallet {wallet_addr[:12]}... to watchlist")
+
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            # Disable in copy_pool (mark as demoted)
+            cursor.execute("""
+                UPDATE copy_pool SET
+                    enabled = 0,
+                    demotion_reason = 'Manual demotion by user',
+                    demoted_at = datetime('now'),
+                    auto_demoted = 0
+                WHERE user_id = ? AND wallet_address = ?
+            """, (user_id, wallet_addr))
+
+            # Ensure wallet is in watchlist
+            cursor.execute("""
+                INSERT OR IGNORE INTO user_watchlists (user_id, wallet_address)
+                VALUES (?, ?)
+            """, (user_id, wallet_addr))
+
+            conn.commit()
+            conn.close()
+
+            wallet_display = f"{wallet_addr[:6]}...{wallet_addr[-4:]}"
+
+            await update.message.reply_text(
+                f"📋 **Wallet Demoted to Watchlist**\n\n"
+                f"Wallet: `{wallet_display}`\n\n"
+                f"This wallet is no longer being auto\\-traded\\.\n"
+                f"It will continue to be monitored\\.\n\n"
+                f"Use /promote to re\\-enable auto\\-trading\\.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            logger.info(f"User {user_id} demoted wallet {wallet_addr[:12]}... to watchlist")
+
+        except Exception as e:
+            logger.error(f"Demote wallet error: {e}")
+            await update.message.reply_text(f"Error: {e}")
+
     async def cmd_label(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Label a watchlist wallet with a nickname."""
         if not self._is_private(update):
@@ -934,8 +1166,8 @@ Use /watchlist to see all your watched wallets."""
 
         user_id = update.effective_user.id
 
-        if not self._is_premium(user_id):
-            await update.message.reply_text("This feature is for premium users only.")
+        if not self._is_authorized_trader(user_id) and not self._is_admin(user_id):
+            await update.message.reply_text("🔒 This feature requires authorization.")
             return
 
         logger.info(f"Label command from user {user_id}")
@@ -1013,8 +1245,8 @@ Use /watchlist to see all your watched wallets."""
 
         user_id = update.effective_user.id
 
-        if not self._is_premium(user_id):
-            await update.message.reply_text("This feature is for premium users only.")
+        if not self._is_authorized_trader(user_id) and not self._is_admin(user_id):
+            await update.message.reply_text("🔒 This feature requires authorization.")
             return
 
         logger.info(f"Summary command from user {user_id}")
@@ -1232,8 +1464,8 @@ _Current status: {status}_"""
 
         user_id = update.effective_user.id
 
-        if not self._is_premium(user_id):
-            await update.message.reply_text("This feature is for premium users only.")
+        if not self._is_authorized_trader(user_id) and not self._is_admin(user_id):
+            await update.message.reply_text("🔒 This feature requires authorization.")
             return
 
         logger.info(f"Export command from user {user_id}")
@@ -1467,7 +1699,7 @@ _Current status: {status}_"""
             await update.message.reply_text(f"Error: {e}")
 
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Help message based on user authorization level."""
+        """Short help message - directs to /userguide for full tutorial."""
         if not self._is_private(update):
             return
 
@@ -1478,142 +1710,193 @@ _Current status: {status}_"""
         logger.info(f"Help command received from user {user_id} (admin={is_admin}, auth={is_authorized})")
 
         try:
+            # Short help message for ALL users
+            msg = """🤖 **SoulWinners Auto\\-Trader**
+
+Copy elite Solana traders automatically\\.
+
+📊 **FEATURES**
+Smart wallet tracking \\(Elite \\+ Insiders\\)
+Auto\\-copy trading with custom strategy
+AI performance optimization
+Real\\-time alerts \\+ win tracking
+
+💰 **HOW IT WORKS**
+1\\. Monitor alerts in @TopwhaleTracker
+2\\. Add proven wallets to your watchlist
+3\\. Enable copy trading for selected wallets
+4\\. Bot mirrors their trades automatically
+
+📖 **LEARN MORE**
+/userguide \\- Complete step\\-by\\-step tutorial
+Contact admin for access
+
+🔗 **CHANNEL**
+@TopwhaleTracker \\- Live signals"""
+
+            await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+            # Add quick command reference for authorized users
             if is_authorized or is_admin:
-                # AUTHORIZED USER HELP
-                msg1 = """📖 **How to Use SoulWinners**
+                commands_msg = """✅ **QUICK COMMANDS**
 
-🔍 **STEP 1: FIND WALLETS**
-Watch alerts in @TopwhaleTracker channel:
-• 🔥 Elite wallet bought TOKEN
-• 🎯 Insider wallet detected early entry
-• Study their win rate, ROI, strategy
+💼 /deposit /balance /withdraw
+🎯 /strategy /copylist /enable /disable
+📊 /positions /history /report
+➕ /add /watchlist /remove /promote /demote
 
-💼 **STEP 2: FUND YOUR WALLET**
-/deposit \\- Get your unique trading wallet
-Send SOL to this address \\(you control it\\)
-/balance \\- Check your funds
+_Use /userguide for detailed instructions_"""
+                await update.message.reply_text(commands_msg, parse_mode=ParseMode.MARKDOWN)
 
-📋 **STEP 3: ADD TO WATCHLIST**
-When you see a good wallet in the channel:
-/add WALLET\\_ADDRESS \\- Add to watchlist
-/watchlist \\- View all watched wallets"""
+            # Add admin commands if admin
+            if is_admin:
+                admin_msg = """⚙️ **ADMIN COMMANDS**
 
-                msg2 = """🎯 **STEP 4: ENABLE COPY TRADING**
-/copylist \\- See your watchlist
-/enable WALLET \\- Start auto\\-copying this wallet
-/disable WALLET \\- Stop copying
-
-⚙️ **STEP 5: SET YOUR STRATEGY**
-/strategy \\- Configure your rules:
-• Buy amount per trade \\(e\\.g\\., 0\\.5 SOL\\)
-• Take profit target \\(e\\.g\\., \\+100%\\)
-• Stop loss protection \\(e\\.g\\., \\-10%\\)
-• Max trades per day \\(e\\.g\\., 10\\)
-
-Example: `/strategy 0.3 100 15 10`
-
-📊 **STEP 6: MONITOR PERFORMANCE**
-/positions \\- See your open trades
-/history \\- Past performance
-/report \\- Get AI strategy recommendations"""
-
-                msg3 = """⚠️ **IMPORTANT**
-• You choose which wallets to copy \\(from channel alerts\\)
-• Bot only trades when YOUR selected wallets trade
-• Your funds stay in YOUR wallet
-• Withdraw anytime with /withdraw
-
-**📊 AI STRATEGY REPORTS**
-• AI analyzes your performance every 3 days
-• Suggests strategy improvements
-• Premium feature \\(contact admin for access\\)
-
-**🔗 USEFUL LINKS**
-• Alerts: @TopwhaleTracker
-• Support: Contact admin
-
-**ALL COMMANDS**
-/deposit /balance /strategy /copylist
-/enable /disable /positions /history
-/report /withdraw"""
-
-                await update.message.reply_text(msg1, parse_mode=ParseMode.MARKDOWN)
-                await update.message.reply_text(msg2, parse_mode=ParseMode.MARKDOWN)
-                await update.message.reply_text(msg3, parse_mode=ParseMode.MARKDOWN)
-
-                # Send admin commands if admin
-                if is_admin:
-                    admin_msg = """**⚙️ ADMIN COMMANDS**
-
-**User Management:**
-/authorize USER\\_ID \\- Grant access
-/revoke USER\\_ID \\- Remove access
-/authorized \\- View authorized users
-
-**Fee Management:**
-/users \\- All users with balances
-/fees USER\\_ID \\- User's fees
-/totalfees \\- Total fees collected
-/transferfees \\- Transfer to owner
-
-**System:**
-/settings \\- Control panel
-/logs \\- View system logs
-/wallet \\- Reveal full wallet"""
-                    await update.message.reply_text(admin_msg, parse_mode=ParseMode.MARKDOWN)
-
-            else:
-                # UNAUTHORIZED USER HELP
-                msg1 = """📖 **About SoulWinners Auto\\-Trader**
-
-This bot helps you copy\\-trade elite Solana wallets\\.
-
-🎯 **The Process:**
-1\\. Watch wallet buy alerts in @TopwhaleTracker
-2\\. Research wallets \\- check win rate, ROI, strategy
-3\\. Add good wallets to your personal watchlist
-4\\. Enable copy\\-trading for wallets you trust
-5\\. Bot automatically mirrors their trades
-6\\. AI analyzes your performance and suggests improvements"""
-
-                msg2 = """✨ **Features:**
-• **Manual wallet selection** \\- You're in control
-• **Customizable strategy** \\- Set buy amount, TP, SL
-• **Turbo\\-fast execution** \\- Better entries than manual
-• **AI\\-powered optimization** \\- Improve over time
-• **Your wallet, your funds** \\- Withdraw anytime
-
-This is NOT auto\\-following random wallets\\.
-YOU decide which proven traders to copy\\.
-
-**📊 AI STRATEGY REPORTS**
-• AI analyzes your performance every 3 days
-• Suggests strategy improvements
-• Premium feature \\(contact admin for access\\)"""
-
-                msg3 = """🔒 **Access Required**
-
-Auto\\-trader features require authorization\\.
-Contact admin to request access\\.
-
-Once approved, you can:
-• Create your trading wallet
-• Add wallets to copy pool
-• Set your strategy parameters
-• Start auto\\-copying trades
-• Monitor performance
-• Get AI recommendations
-
-**Alerts Channel:** @TopwhaleTracker
-Watch alerts to find wallets worth copying\\!"""
-
-                await update.message.reply_text(msg1, parse_mode=ParseMode.MARKDOWN)
-                await update.message.reply_text(msg2, parse_mode=ParseMode.MARKDOWN)
-                await update.message.reply_text(msg3, parse_mode=ParseMode.MARKDOWN)
+👥 /authorize /revoke /authorized /users
+💰 /fees /totalfees /transferfees
+🔧 /settings /crons /logs /wallet
+📊 /pool /stats /insiders /clusters"""
+                await update.message.reply_text(admin_msg, parse_mode=ParseMode.MARKDOWN)
 
             logger.info("Help command completed successfully")
         except Exception as e:
             logger.error(f"Help command failed: {e}")
+            await update.message.reply_text(f"Error: {e}")
+
+    async def cmd_userguide(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Full step-by-step user guide."""
+        if not self._is_private(update):
+            return
+
+        user_id = update.effective_user.id
+        is_admin = self._is_admin(user_id)
+        is_authorized = self._is_authorized_trader(user_id)
+
+        logger.info(f"Userguide command received from user {user_id}")
+
+        try:
+            # Part 1: Getting Started
+            msg1 = """📖 **SoulWinners User Guide**
+
+🎯 **STEP 1: GET ACCESS**
+Contact admin to authorize your account\\.
+Once approved, all features unlock\\.
+
+🔍 **STEP 2: MONITOR ALERTS**
+Join @TopwhaleTracker channel\\.
+Watch for buy alerts from elite wallets\\.
+
+Example alert:
+🔥 Elite Wallet bought $TOKEN
+Entry: $50K mcap
+Wallet win rate: 73%
+
+➕ **STEP 3: ADD WALLETS**
+Forward any alert to this bot
+OR use `/add <wallet_address>`
+
+Wallet goes to your watchlist \\(monitoring only\\)"""
+
+            # Part 2: Setup Trading
+            msg2 = """📊 **STEP 4: FUND YOUR WALLET**
+/deposit \\- Get your trading wallet address
+Send SOL to this address \\(you control it\\)
+/balance \\- Check your balance
+
+⚙️ **STEP 5: SET STRATEGY**
+/strategy \\- Configure your rules
+
+Parameters:
+• Buy amount per trade \\(e\\.g\\., 0\\.5 SOL\\)
+• Take profit target \\(e\\.g\\., \\+100%\\)
+• Stop loss \\(e\\.g\\., \\-10%\\)
+• Max trades per day \\(e\\.g\\., 10\\)
+
+Example: `/strategy 0.5 100 10 10`"""
+
+            # Part 3: Copy Trading
+            msg3 = """✅ **STEP 6: ENABLE COPY TRADING**
+/copylist \\- View your watchlist
+/enable <wallet> \\- Start copying this wallet
+
+Bot now auto\\-trades when this wallet trades\\!
+
+📈 **STEP 7: MONITOR PERFORMANCE**
+/positions \\- See open trades
+/history \\- Past performance
+/report \\- AI strategy recommendations
+
+🔄 **STEP 8: MANAGE WALLETS**
+/disable <wallet> \\- Stop copying
+/remove <wallet> \\- Remove from watchlist
+/promote <wallet> \\- Move to copy pool
+/demote <wallet> \\- Move to watchlist"""
+
+            # Part 4: Decay System + Premium
+            msg4 = """⚠️ **WALLET DECAY SYSTEM**
+
+Copy pool wallets are performance\\-monitored:
+
+📉 Win rate drops below 60%
+→ Auto\\-demoted to watchlist
+→ No longer copied, still monitored
+→ You get notified
+
+📈 Win rate recovers to 65%\\+
+→ Auto\\-promoted back to copy pool
+→ Copying resumes
+
+Manual override: /promote <wallet>
+
+💎 **PREMIUM FEATURES**
+• AI strategy reports \\(every 3 days\\)
+• Performance analysis
+• Trading recommendations
+Contact admin for access
+
+📞 **SUPPORT**
+Questions? Contact admin
+Feedback? Use thumbs down on any message
+
+🔗 **ALERTS CHANNEL**
+@TopwhaleTracker"""
+
+            await update.message.reply_text(msg1, parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text(msg2, parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text(msg3, parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text(msg4, parse_mode=ParseMode.MARKDOWN)
+
+            # Add command quick reference for authorized users
+            if is_authorized or is_admin:
+                commands_msg = """✅ **YOUR COMMANDS**
+
+💼 **WALLET MANAGEMENT**
+/deposit \\- Get deposit address
+/balance \\- Check SOL balance
+/withdraw <amount> <address>
+
+🎯 **STRATEGY \\& TRADING**
+/strategy \\[buy\\] \\[tp\\] \\[sl\\] \\[max\\]
+/copylist \\- View copy pool
+/enable <wallet> \\- Start copying
+/disable <wallet> \\- Stop copying
+/promote <wallet> \\- Move to copy pool
+/demote <wallet> \\- Move to watchlist
+
+📊 **MONITORING**
+/positions \\- Open trades
+/history \\- Trade history
+/report \\- AI strategy report
+
+➕ **WATCHLIST**
+/add <wallet> \\- Add to watchlist
+/watchlist \\- View all wallets
+/remove <wallet> \\- Remove wallet"""
+                await update.message.reply_text(commands_msg, parse_mode=ParseMode.MARKDOWN)
+
+            logger.info("Userguide command completed successfully")
+        except Exception as e:
+            logger.error(f"Userguide command failed: {e}")
             await update.message.reply_text(f"Error: {e}")
 
     # =========================================================================

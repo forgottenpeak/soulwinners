@@ -9,9 +9,9 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Set, Optional
 from dataclasses import dataclass, field
 
-from config.settings import HELIUS_API_KEY, HELIUS_FREE_KEYS
+from config.settings import INSIDER_DETECTION_KEYS
 from database import get_connection
-from collectors.helius import helius_rotator  # Uses FREE keys for background jobs
+from collectors.helius import helius_insider_rotator  # 11 keys for insider detection
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +78,7 @@ class LaunchTracker:
         self.fresh_tokens: Dict[str, FreshToken] = {}
         self.early_buyers: Dict[str, List[EarlyBuyer]] = {}  # wallet -> buys
         self.fresh_migrations: List[FreshToken] = []  # Recently migrated tokens (0-6h)
-        self.rotator = helius_rotator  # Use FREE key rotation for background jobs
-        self.api_key = HELIUS_API_KEY  # Legacy fallback
+        self.rotator = helius_insider_rotator  # 11 keys for insider detection
         self.debug_timestamps = True  # Enable timestamp debugging
 
     def _parse_timestamp(self, timestamp_ms: int, token_symbol: str = "???") -> Optional[datetime]:
@@ -1411,8 +1410,7 @@ class AirdropTracker:
     """
 
     def __init__(self):
-        self.rotator = helius_rotator  # Use FREE key rotation
-        self.api_key = HELIUS_API_KEY  # Legacy fallback
+        self.rotator = helius_insider_rotator  # 11 keys for insider detection
         self.airdrop_recipients: Dict[str, List[AirdropRecipient]] = {}
 
     async def _get_api_key(self) -> str:

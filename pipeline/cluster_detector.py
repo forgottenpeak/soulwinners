@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 import json
 
-from config.settings import HELIUS_API_KEY
+from config.settings import CLUSTER_KEYS
 from database import get_connection
-from collectors.helius import helius_rotator  # Uses FREE keys for background jobs
+from collectors.helius import helius_cluster_rotator  # 3 keys for cluster analysis
 
 logger = logging.getLogger(__name__)
 
@@ -53,14 +53,13 @@ class ClusterDetector:
     """
 
     def __init__(self):
-        self.rotator = helius_rotator  # Use FREE key rotation for background jobs
-        self.api_key = HELIUS_API_KEY  # Legacy fallback
+        self.rotator = helius_cluster_rotator  # 3 keys for cluster analysis
         self.connections: Dict[Tuple[str, str], WalletConnection] = {}
         self.clusters: Dict[str, WalletCluster] = {}
         self.wallet_to_cluster: Dict[str, str] = {}
 
     async def _get_api_key(self) -> str:
-        """Get next API key from rotator (FREE pool)."""
+        """Get next API key from rotator (CLUSTER pool - 3 keys)."""
         return await self.rotator.get_key()
 
     async def analyze_wallet_connections(self, wallet: str) -> List[WalletConnection]:

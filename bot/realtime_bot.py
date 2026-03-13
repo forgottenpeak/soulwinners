@@ -27,6 +27,18 @@ from database import get_connection
 from bot.alert_formatter import AlertFormatter, SOULSCANNER_BOT
 from collectors.helius import helius_buy_alert_rotator  # 5 keys for real-time buy alerts
 
+# V3 Edge Auto-Trader imports (optional - graceful fallback if not available)
+try:
+    from ml.predictor import get_predictor, predict_trade
+    from bot.auto_trader import get_auto_trader, process_trade_signal
+    HAS_ML_PREDICTOR = True
+except ImportError:
+    HAS_ML_PREDICTOR = False
+    get_predictor = None
+    predict_trade = None
+    get_auto_trader = None
+    process_trade_signal = None
+
 logger = logging.getLogger(__name__)
 
 # Win milestone thresholds
@@ -657,6 +669,30 @@ class RealTimeBot:
         except:
             return True  # Default to enabled if error
 
+    def _is_ai_gate_enabled(self) -> bool:
+        """Check if AI decision gate is enabled."""
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM settings WHERE key = 'ai_gate_enabled'")
+            row = cursor.fetchone()
+            conn.close()
+            return row[0] == 'true' if row else False  # Default to disabled
+        except:
+            return False
+
+    def _is_autotrader_enabled(self) -> bool:
+        """Check if auto-trader is enabled."""
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM settings WHERE key = 'autotrader_enabled'")
+            row = cursor.fetchone()
+            conn.close()
+            return row[0] == 'true' if row else False  # Default to disabled
+        except:
+            return False
+
     async def _poll_cycle(self):
         """One polling cycle - check qualified + insider + watchlist wallets."""
         # Check if buy_alerts is enabled
@@ -933,6 +969,39 @@ class RealTimeBot:
 
         # Get token info from DexScreener
         token_info = await self._get_token_info(token_address)
+
+        # =====================================================================
+        # V3 EDGE: AI DECISION LAYER
+        # =====================================================================
+        if HAS_ML_PREDICTOR and self._is_ai_gate_enabled():
+            try:
+                # Build feature snapshot and get AI prediction
+                wallet_data_copy = dict(wallet_data) if wallet_data else {}
+                wallet_data_copy['wallet_address'] = wallet_addr
+
+                prediction = predict_trade(wallet_data_copy, token_info, parsed)
+
+                prob_runner = prediction.get('prob_runner', 0.5)
+                prob_rug = prediction.get('prob_rug', 0.5)
+                decision = prediction.get('decision', 'flag')
+
+                # AI decision gate - skip if not approved
+                if decision != 'approve':
+                    logger.info(f"🤖 AI SKIPPED: {token_info.get('symbol', '???')} "
+                               f"({prob_runner:.0%} runner, {prob_rug:.0%} rug) - {prediction.get('decision_reason', '')}")
+                    return  # Don't alert
+
+                logger.info(f"🤖 AI APPROVED: {token_info.get('symbol', '???')} "
+                           f"({prob_runner:.0%} runner, {prob_rug:.0%} rug)")
+
+                # Optionally trigger auto-trader
+                if self._is_autotrader_enabled():
+                    asyncio.create_task(
+                        process_trade_signal(wallet_data_copy, token_info, parsed)
+                    )
+
+            except Exception as e:
+                logger.warning(f"AI prediction failed (continuing without): {e}")
 
         # Get smart money count for this token
         smart_money = self.smart_money.get_smart_money_count(token_address)

@@ -6,6 +6,13 @@ numpy>=1.24.0
 scikit-learn>=1.3.0
 joblib>=1.3.0
 
+# ML Models (V3 Edge Auto-Trader)
+xgboost>=2.0.0
+lightgbm>=4.0.0
+
+# Anthropic API (AI Advisor Layer)
+anthropic>=0.34.0
+
 # Async & Networking
 aiohttp>=3.9.0
 websockets>=12.0

@@ -27,11 +27,11 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8483614914:AAFjwtH2pct_OdZ
 BOT_TOKEN = TELEGRAM_BOT_TOKEN  # Alias for scripts
 TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID", "-1003534177506")
 TELEGRAM_CHANNEL_NAME = "@TopwhaleTracker"
-TELEGRAM_USER_ID = os.getenv("TELEGRAM_USER_ID", "7632133974")  # Admin user ID
+TELEGRAM_USER_ID = os.getenv("TELEGRAM_USER_ID", "1153491543")  # Admin user ID
 
 # Admin User IDs (for commands and daily reports)
 ADMIN_USER_IDS = [
-    7632133974,  # Primary admin
+    1153491543,  # Primary admin
 ]
 
 # Helius Key Pools (separate pools for different tasks)

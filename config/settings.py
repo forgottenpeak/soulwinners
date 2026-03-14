@@ -24,9 +24,15 @@ HELIUS_WS_URL = f"wss://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}"
 
 # Telegram Configuration
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8483614914:AAFjwtH2pct_OdZgi4zrcPNKq6zWdb62ypQ")
+BOT_TOKEN = TELEGRAM_BOT_TOKEN  # Alias for scripts
 TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID", "-1003534177506")
 TELEGRAM_CHANNEL_NAME = "@TopwhaleTracker"
 TELEGRAM_USER_ID = os.getenv("TELEGRAM_USER_ID", "7632133974")  # Admin user ID
+
+# Admin User IDs (for commands and daily reports)
+ADMIN_USER_IDS = [
+    7632133974,  # Primary admin
+]
 
 # Helius Key Pools (separate pools for different tasks)
 BUY_ALERT_KEYS = [

@@ -23,7 +23,7 @@ RUG_THRESHOLD = -80     # -80% ROI = rug
 MAX_TRACKING_HOURS = 48  # Auto-label after 48 hours
 
 # Minimum buy amount to track (filter noise)
-MIN_TRACK_SOL = 0.5  # Only track positions >= 0.5 SOL
+MIN_TRACK_SOL = 0.8  # Only track positions >= 0.8 SOL (quality filter)
 
 # Maximum open positions to prevent overload
 MAX_TRACKED_POSITIONS = 1000

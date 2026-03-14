@@ -684,6 +684,71 @@ class RealTimeBot:
         except:
             return True  # Default to enabled if error
 
+    def _is_lifecycle_tracking_enabled(self) -> bool:
+        """
+        Check if lifecycle tracking is enabled (INDEPENDENT from buy_alerts).
+        This allows tracking positions silently even when channel alerts are off.
+        """
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM settings WHERE key = 'lifecycle_tracking_enabled'")
+            row = cursor.fetchone()
+            conn.close()
+            return row[0].lower() == 'true' if row else False  # Default to disabled
+        except:
+            return False  # Default to disabled if error
+
+    def _create_lifecycle_position(
+        self,
+        wallet_addr: str,
+        token_address: str,
+        token_symbol: str,
+        tx_timestamp: int,
+        entry_mcap: float,
+        liquidity: float,
+        sol_amount: float,
+        wallet_type: str,
+        wallet_tier: str,
+        alert_message_id: Optional[int] = None,
+    ) -> bool:
+        """
+        Create lifecycle position for ML training (runs independently of alerts).
+
+        Returns True if position was created successfully.
+        """
+        if not self.lifecycle_tracker:
+            return False
+
+        if not self._is_lifecycle_tracking_enabled():
+            return False
+
+        if entry_mcap <= 0:
+            return False
+
+        if not should_track_position(sol_amount, wallet_tier, wallet_type):
+            return False
+
+        try:
+            self.lifecycle_tracker.create_position(
+                wallet_address=wallet_addr,
+                token_address=token_address,
+                token_symbol=token_symbol,
+                entry_timestamp=tx_timestamp,
+                entry_mc=entry_mcap,
+                entry_liquidity=liquidity,
+                buy_sol_amount=sol_amount,
+                buy_event_id=None,
+                wallet_type=wallet_type,
+                wallet_tier=wallet_tier,
+                alert_message_id=alert_message_id,
+            )
+            logger.info(f"📊 Lifecycle position created: {wallet_addr[:8]}... {sol_amount:.2f} SOL ({wallet_type})")
+            return True
+        except Exception as e:
+            logger.debug(f"Lifecycle tracking error: {e}")
+            return False
+
     def _is_ai_gate_enabled(self) -> bool:
         """Check if AI decision gate is enabled."""
         try:
@@ -978,16 +1043,47 @@ class RealTimeBot:
             await self._send_watchlist_buy_alert(wallet_addr, parsed)
 
     async def _send_qualified_alert(self, wallet_addr: str, wallet_data: Dict, parsed: Dict):
-        """Send alert to public channel for qualified wallet buys with SoulScanner button."""
+        """
+        Handle qualified wallet buy - lifecycle tracking + optional channel alert.
+
+        INDEPENDENT CONTROLS:
+        - lifecycle_tracking_enabled: Creates position records for ML (silent)
+        - buy_alerts (cron): Sends alerts to public channel
+        """
         token_address = parsed['token_address']
         sol_amount = parsed['sol_amount']
         tx_timestamp = parsed['timestamp']
 
-        # Record for smart money tracking
+        # Record for smart money tracking (always)
         self.smart_money.record_buy(token_address, wallet_addr)
 
-        # Get token info from DexScreener
+        # Get token info from DexScreener (needed for both tracking and alerts)
         token_info = await self._get_token_info(token_address)
+        entry_mcap = token_info.get('market_cap', 0)
+        wallet_tier = wallet_data.get('tier') if wallet_data else None
+
+        # =====================================================================
+        # LIFECYCLE TRACKING (INDEPENDENT - runs even if alerts disabled)
+        # =====================================================================
+        self._create_lifecycle_position(
+            wallet_addr=wallet_addr,
+            token_address=token_address,
+            token_symbol=token_info.get('symbol', '???'),
+            tx_timestamp=tx_timestamp,
+            entry_mcap=entry_mcap,
+            liquidity=token_info.get('liquidity', 0),
+            sol_amount=sol_amount,
+            wallet_type='qualified',
+            wallet_tier=wallet_tier,
+            alert_message_id=None,  # No alert yet
+        )
+
+        # =====================================================================
+        # CHECK IF CHANNEL ALERTS ENABLED (separate from lifecycle tracking)
+        # =====================================================================
+        if not self._is_cron_enabled('buy_alerts'):
+            logger.debug(f"📊 Lifecycle tracked (alerts OFF): {wallet_addr[:8]}... {sol_amount:.2f} SOL")
+            return  # Skip channel alert, but tracking is done
 
         # =====================================================================
         # V3 EDGE: AI DECISION LAYER
@@ -1089,33 +1185,10 @@ class RealTimeBot:
                 cache_alert_wallet(sent_message.message_id, wallet_addr)
 
                 # Record entry for win milestone tracking
-                entry_mcap = token_info.get('market_cap', 0)
                 if entry_mcap > 0:
                     self.milestone_tracker.record_entry(
                         wallet_addr, token_address, entry_mcap, sent_message.message_id
                     )
-
-                # Create position lifecycle tracker for ML training (smart filtering)
-                wallet_tier = wallet_data.get('tier') if wallet_data else None
-                if (self.lifecycle_tracker and entry_mcap > 0 and
-                    should_track_position(sol_amount, wallet_tier, 'qualified')):
-                    try:
-                        self.lifecycle_tracker.create_position(
-                            wallet_address=wallet_addr,
-                            token_address=token_address,
-                            token_symbol=token_info.get('symbol', '???'),
-                            entry_timestamp=tx_timestamp,
-                            entry_mc=entry_mcap,
-                            entry_liquidity=token_info.get('liquidity', 0),
-                            buy_sol_amount=sol_amount,
-                            buy_event_id=None,  # Will be linked if trade_events exists
-                            wallet_type='qualified',
-                            wallet_tier=wallet_tier,
-                            alert_message_id=sent_message.message_id,
-                        )
-                        logger.info(f"📊 Position tracked: {wallet_addr[:8]}... {sol_amount:.2f} SOL")
-                    except Exception as e:
-                        logger.debug(f"Lifecycle tracking error: {e}")
 
             logger.info(f"✅ QUALIFIED ALERT: {wallet_data.get('tier')} bought {token_info.get('symbol')} for {sol_amount:.2f} SOL")
 
@@ -1123,7 +1196,13 @@ class RealTimeBot:
             logger.error(f"❌ FAILED to send qualified alert: {e}")
 
     async def _send_insider_alert(self, wallet_addr: str, parsed: Dict):
-        """Send special INSIDER ALERT to public channel when insider buys."""
+        """
+        Handle insider wallet buy - lifecycle tracking + optional channel alert.
+
+        INDEPENDENT CONTROLS:
+        - lifecycle_tracking_enabled: Creates position records for ML (silent)
+        - buy_alerts (cron): Sends alerts to public channel
+        """
         token_address = parsed['token_address']
         sol_amount = parsed['sol_amount']
         tx_timestamp = parsed['timestamp']
@@ -1148,10 +1227,35 @@ class RealTimeBot:
 
         # Get token info from DexScreener (now with extended metrics)
         token_info = await self._get_token_info(token_address)
-        token_symbol = token_info.get('symbol', '???')
-        token_name = token_info.get('name', 'Unknown')
         market_cap = token_info.get('market_cap', 0)
         liquidity = token_info.get('liquidity', 0)
+        token_symbol = token_info.get('symbol', '???')
+
+        # =====================================================================
+        # LIFECYCLE TRACKING (INDEPENDENT - runs even if alerts disabled)
+        # =====================================================================
+        self._create_lifecycle_position(
+            wallet_addr=wallet_addr,
+            token_address=token_address,
+            token_symbol=token_symbol,
+            tx_timestamp=tx_timestamp,
+            entry_mcap=market_cap,
+            liquidity=liquidity,
+            sol_amount=sol_amount,
+            wallet_type='insider',
+            wallet_tier=pattern,
+            alert_message_id=None,
+        )
+
+        # =====================================================================
+        # CHECK IF CHANNEL ALERTS ENABLED (separate from lifecycle tracking)
+        # =====================================================================
+        if not self._is_cron_enabled('buy_alerts'):
+            logger.debug(f"📊 Insider lifecycle tracked (alerts OFF): {wallet_addr[:8]}... {sol_amount:.2f} SOL")
+            return  # Skip channel alert, but tracking is done
+
+        # Continue with token info extraction for alert formatting
+        token_name = token_info.get('name', 'Unknown')
         volume_5m = token_info.get('volume_5m', 0)
         volume_1h = token_info.get('volume_1h', 0)
         volume_24h = token_info.get('volume_24h', 0)
@@ -1277,27 +1381,6 @@ class RealTimeBot:
                     self.milestone_tracker.record_entry(
                         wallet_addr, token_address, market_cap, sent_message.message_id
                     )
-
-                # Create position lifecycle tracker for ML training (smart filtering)
-                if (self.lifecycle_tracker and market_cap > 0 and
-                    should_track_position(sol_amount, pattern, 'insider')):
-                    try:
-                        self.lifecycle_tracker.create_position(
-                            wallet_address=wallet_addr,
-                            token_address=token_address,
-                            token_symbol=token_symbol,
-                            entry_timestamp=tx_timestamp,
-                            entry_mc=market_cap,
-                            entry_liquidity=liquidity,
-                            buy_sol_amount=sol_amount,
-                            buy_event_id=None,
-                            wallet_type='insider',
-                            wallet_tier=pattern,
-                            alert_message_id=sent_message.message_id,
-                        )
-                        logger.info(f"📊 Insider position tracked: {wallet_addr[:8]}... {sol_amount:.2f} SOL")
-                    except Exception as e:
-                        logger.debug(f"Lifecycle tracking error: {e}")
 
             logger.info(f"✅ INSIDER ALERT: {pattern} insider bought {token_symbol} for {sol_amount:.2f} SOL")
 

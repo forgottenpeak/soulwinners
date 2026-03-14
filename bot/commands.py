@@ -122,6 +122,7 @@ class CommandBot:
         # Cron control commands (admin-only)
         self.application.add_handler(CommandHandler("crons", self.cmd_crons))
         self.application.add_handler(CommandHandler("togglebuys", self.cmd_togglebuys))
+        self.application.add_handler(CommandHandler("lifecyclecontrol", self.cmd_lifecyclecontrol))
         self.application.add_handler(CommandHandler("toggleinsiders", self.cmd_toggleinsiders))
         self.application.add_handler(CommandHandler("togglepipeline", self.cmd_togglepipeline))
         self.application.add_handler(CommandHandler("toggleclusters", self.cmd_toggleclusters))
@@ -2630,6 +2631,40 @@ _Use buttons below to control cron job_"""
             parse_mode=ParseMode.MARKDOWN
         )
         logger.info(f"Buy alerts toggled to {status} by admin")
+
+    async def cmd_lifecyclecontrol(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Toggle lifecycle tracking ON/OFF (independent from buy_alerts)."""
+        if not self._is_private(update) or not self._is_admin(update.effective_user.id):
+            await update.message.reply_text("Admin only.")
+            return
+
+        # Get current state from settings
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM settings WHERE key = 'lifecycle_tracking_enabled'")
+        row = cursor.fetchone()
+        current = row[0].lower() == 'true' if row else False
+
+        # Toggle
+        new_value = 'false' if current else 'true'
+        cursor.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('lifecycle_tracking_enabled', ?)",
+            (new_value,)
+        )
+        conn.commit()
+        conn.close()
+
+        status = "✅ ENABLED" if new_value == 'true' else "❌ DISABLED"
+
+        await update.message.reply_text(
+            f"🔄 *Lifecycle Tracking: {status}*\n\n"
+            f"This is SEPARATE from channel alerts:\n"
+            f"• Lifecycle ON + Alerts OFF = Silent tracking\n"
+            f"• Lifecycle ON + Alerts ON = Full mode\n\n"
+            f"Lifecycle tracking creates position records for ML training.",
+            parse_mode='Markdown'
+        )
+        logger.info(f"Lifecycle tracking toggled to {new_value} by admin")
 
     async def cmd_toggleinsiders(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Toggle insider detection cron ON/OFF."""

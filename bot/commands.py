@@ -87,6 +87,8 @@ class CommandBot:
         self.application.add_handler(CommandHandler("pool", self.cmd_pool))
         self.application.add_handler(CommandHandler("wallets", self.cmd_wallets))
         self.application.add_handler(CommandHandler("leaderboard", self.cmd_leaderboard))
+        self.application.add_handler(CommandHandler("fullboard", self.cmd_fullboard))
+        self.application.add_handler(CommandHandler("adminleaderboard", self.cmd_adminleaderboard))
         self.application.add_handler(CommandHandler("stats", self.cmd_stats))
         self.application.add_handler(CommandHandler("help", self.cmd_help))
         self.application.add_handler(CommandHandler("userguide", self.cmd_userguide))
@@ -530,64 +532,252 @@ Contact admin to request access.
             await update.message.reply_text(f"Error: {e}")
 
     async def cmd_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Top performers with detailed metrics."""
-        if not self._is_private(update) or not self._is_admin(update.effective_user.id):
+        """
+        USER VIEW: Top performers with TRUNCATED addresses.
+        Shows user's personalized feed (150 wallets) if available.
+        """
+        if not self._is_private(update):
             return
 
-        logger.info(f"Leaderboard command received from user {update.effective_user.id}")
+        user_id = update.effective_user.id
+        is_admin = self._is_admin(user_id)
+
+        logger.info(f"Leaderboard command received from user {user_id}")
         try:
             conn = get_connection()
             cursor = conn.cursor()
+
+            # Check if user has personalized feed
             cursor.execute("""
-                SELECT wallet_address, cluster_name, roi_pct, win_rate,
-                       current_balance_sol, x10_ratio, x20_ratio, x50_ratio,
-                       total_trades, tier, priority_score
-                FROM qualified_wallets
-                ORDER BY roi_pct DESC
-                LIMIT 10
-            """)
-            wallets = cursor.fetchall()
+                SELECT COUNT(*) FROM user_wallet_feed WHERE user_id = ?
+            """, (user_id,))
+            has_feed = cursor.fetchone()[0] > 0
+
+            if has_feed:
+                # Show user's personalized feed with importance scores
+                cursor.execute("""
+                    SELECT
+                        uwf.wallet_address,
+                        COALESCE(qw.cluster_name, wgp.specialization, 'Unknown') as strategy,
+                        COALESCE(qw.roi_pct, wgp.avg_roi, 0) as roi,
+                        COALESCE(qw.win_rate, wgp.win_rate, 0) as win_rate,
+                        COALESCE(qw.tier, wgp.tier, 'Unknown') as tier,
+                        COALESCE(wgp.importance_score, 0) as importance,
+                        COALESCE(wgp.tokens_10x_plus, 0) as x10_count,
+                        COALESCE(wgp.rug_count, 0) as rug_count
+                    FROM user_wallet_feed uwf
+                    LEFT JOIN qualified_wallets qw ON uwf.wallet_address = qw.wallet_address
+                    LEFT JOIN wallet_global_pool wgp ON uwf.wallet_address = wgp.wallet_address
+                    WHERE uwf.user_id = ?
+                    ORDER BY COALESCE(wgp.importance_score, 0) DESC
+                    LIMIT 15
+                """, (user_id,))
+                wallets = cursor.fetchall()
+                title = "🏆 **YOUR TOP WALLETS** (by Importance)"
+            else:
+                # Default to qualified wallets for users without feed
+                cursor.execute("""
+                    SELECT
+                        qw.wallet_address,
+                        qw.cluster_name as strategy,
+                        qw.roi_pct as roi,
+                        qw.win_rate,
+                        qw.tier,
+                        COALESCE(wgp.importance_score, 0) as importance,
+                        COALESCE(wgp.tokens_10x_plus, 0) as x10_count,
+                        COALESCE(wgp.rug_count, 0) as rug_count
+                    FROM qualified_wallets qw
+                    LEFT JOIN wallet_global_pool wgp ON qw.wallet_address = wgp.wallet_address
+                    ORDER BY COALESCE(wgp.importance_score, qw.priority_score, 0) DESC
+                    LIMIT 15
+                """)
+                wallets = cursor.fetchall()
+                title = "🏆 **TOP PERFORMERS** (by Importance)"
+
             conn.close()
 
             if not wallets:
-                await update.message.reply_text("No qualified wallets.")
+                await update.message.reply_text("No wallets in your pool.")
                 return
 
-            message = "🏆 **TOP PERFORMERS LEADERBOARD**\n\n"
+            message = f"{title}\n\n"
 
             for i, w in enumerate(wallets, 1):
-                (addr, strategy, roi, win_rate, balance,
-                 x10, x20, x50, trades, tier, score) = w
+                (addr, strategy, roi, win_rate, tier, importance, x10_count, rug_count) = w
 
-                message += f"**#{i} {tier}** - {strategy}\n"
+                # TRUNCATE addresses for user view
+                truncated = f"{addr[:6]}...{addr[-4:]}"
+
+                message += f"**#{i} {tier}**\n"
+                message += f"├ Strategy: {strategy or 'N/A'}\n"
                 message += f"├ ROI: **{roi:,.0f}%**\n"
-                message += f"├ Win Rate: {win_rate*100:.0f}%\n"
-                message += f"├ Balance: {balance:.2f} SOL\n"
-                message += f"├ 10x Rate: {(x10 or 0)*100:.0f}%\n"
-                message += f"├ Trades: {trades or 0}\n"
-                message += f"├ Score: {score:.4f}\n"
-                message += f"└ `{addr}`\n\n"
+                message += f"├ Win Rate: {(win_rate or 0)*100:.0f}%\n"
+                message += f"├ Importance: {importance:.2f}\n"
+                message += f"├ 10x Tokens: {x10_count} | Rugs: {rug_count}\n"
+                message += f"└ `{truncated}`\n\n"
 
-            # Split if too long
-            if len(message) > 4000:
-                parts = []
-                current = ""
-                for line in message.split('\n'):
-                    if len(current) + len(line) + 1 > 4000:
-                        parts.append(current)
-                        current = line
-                    else:
-                        current += '\n' + line if current else line
-                if current:
-                    parts.append(current)
-                for part in parts:
-                    await update.message.reply_text(part, parse_mode=ParseMode.MARKDOWN)
-            else:
-                await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+            message += "_Use /fullboard for full addresses (admin)_"
+
+            await self._send_long_message(update, message)
             logger.info("Leaderboard command completed successfully")
         except Exception as e:
             logger.error(f"Leaderboard command failed: {e}")
             await update.message.reply_text(f"Error: {e}")
+
+    async def cmd_fullboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        ADMIN VIEW: Full addresses for user's personalized feed.
+        Shows importance scores and full wallet addresses.
+        """
+        if not self._is_private(update) or not self._is_admin(update.effective_user.id):
+            await update.message.reply_text("Admin only.")
+            return
+
+        user_id = update.effective_user.id
+        logger.info(f"Fullboard command received from admin {user_id}")
+
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            # Show user's personalized feed with FULL addresses
+            cursor.execute("""
+                SELECT
+                    uwf.wallet_address,
+                    COALESCE(qw.cluster_name, wgp.specialization, 'Unknown') as strategy,
+                    COALESCE(qw.roi_pct, wgp.avg_roi, 0) as roi,
+                    COALESCE(qw.win_rate, wgp.win_rate, 0) as win_rate,
+                    COALESCE(qw.tier, wgp.tier, 'Unknown') as tier,
+                    COALESCE(wgp.importance_score, 0) as importance,
+                    COALESCE(wgp.tokens_10x_plus, 0) as x10_count,
+                    COALESCE(wgp.tokens_5x_plus, 0) as x5_count,
+                    COALESCE(wgp.rug_count, 0) as rug_count
+                FROM user_wallet_feed uwf
+                LEFT JOIN qualified_wallets qw ON uwf.wallet_address = qw.wallet_address
+                LEFT JOIN wallet_global_pool wgp ON uwf.wallet_address = wgp.wallet_address
+                WHERE uwf.user_id = ?
+                ORDER BY COALESCE(wgp.importance_score, 0) DESC
+                LIMIT 20
+            """, (user_id,))
+            wallets = cursor.fetchall()
+
+            # Get total count
+            cursor.execute("SELECT COUNT(*) FROM user_wallet_feed WHERE user_id = ?", (user_id,))
+            total_count = cursor.fetchone()[0]
+            conn.close()
+
+            if not wallets:
+                await update.message.reply_text("No wallets in your personalized feed.\nUse /adminleaderboard to see global pool.")
+                return
+
+            message = f"🔓 **YOUR FEED** ({total_count} wallets) - FULL ADDRESSES\n\n"
+
+            for i, w in enumerate(wallets, 1):
+                (addr, strategy, roi, win_rate, tier, importance, x10, x5, rugs) = w
+
+                message += f"**#{i} {tier}** | Score: {importance:.2f}\n"
+                message += f"├ {strategy}\n"
+                message += f"├ ROI: {roi:,.0f}% | WR: {(win_rate or 0)*100:.0f}%\n"
+                message += f"├ 10x: {x10} | 5x: {x5} | Rugs: {rugs}\n"
+                message += f"└ `{addr}`\n\n"
+
+            await self._send_long_message(update, message)
+            logger.info("Fullboard command completed")
+
+        except Exception as e:
+            logger.error(f"Fullboard command failed: {e}")
+            await update.message.reply_text(f"Error: {e}")
+
+    async def cmd_adminleaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        ADMIN VIEW: Global pool leaderboard (ALL 656+ wallets).
+        Shows full addresses and importance scores.
+        """
+        if not self._is_private(update) or not self._is_admin(update.effective_user.id):
+            await update.message.reply_text("Admin only.")
+            return
+
+        logger.info(f"Admin leaderboard command from {update.effective_user.id}")
+
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            # Get global pool stats
+            cursor.execute("""
+                SELECT COUNT(*), AVG(importance_score), MAX(importance_score)
+                FROM wallet_global_pool
+                WHERE importance_score IS NOT NULL
+            """)
+            stats = cursor.fetchone()
+            total_scored = stats[0] or 0
+            avg_score = stats[1] or 0
+            max_score = stats[2] or 0
+
+            # Top wallets by importance
+            cursor.execute("""
+                SELECT
+                    wgp.wallet_address,
+                    wgp.tier,
+                    wgp.importance_score,
+                    wgp.tokens_10x_plus,
+                    wgp.tokens_5x_plus,
+                    wgp.tokens_3x_plus,
+                    wgp.runner_count,
+                    wgp.rug_count,
+                    COALESCE(wgp.quality_score, 0) as quality,
+                    wgp.specialization
+                FROM wallet_global_pool wgp
+                WHERE wgp.importance_score IS NOT NULL
+                ORDER BY wgp.importance_score DESC
+                LIMIT 25
+            """)
+            wallets = cursor.fetchall()
+
+            # Get total in global pool
+            cursor.execute("SELECT COUNT(*) FROM wallet_global_pool")
+            total_pool = cursor.fetchone()[0]
+            conn.close()
+
+            message = f"🌐 **GLOBAL POOL LEADERBOARD**\n"
+            message += f"_{total_pool:,} wallets | {total_scored:,} scored_\n"
+            message += f"_Avg: {avg_score:.2f} | Max: {max_score:.2f}_\n\n"
+
+            for i, w in enumerate(wallets, 1):
+                (addr, tier, importance, x10, x5, x3, runners, rugs, quality, spec) = w
+
+                tier_emoji = {"Elite": "🏆", "High-Quality": "⭐", "Mid-Tier": "📊", "Insider": "🔍"}.get(tier, "")
+
+                message += f"**#{i}** {tier_emoji} **{importance:.2f}** pts\n"
+                message += f"├ {tier} | {spec or 'General'}\n"
+                message += f"├ 10x: {x10 or 0} | 5x: {x5 or 0} | 3x: {x3 or 0}\n"
+                message += f"├ Runners: {runners or 0} | Rugs: {rugs or 0}\n"
+                message += f"└ `{addr}`\n\n"
+
+            await self._send_long_message(update, message)
+            logger.info("Admin leaderboard completed")
+
+        except Exception as e:
+            logger.error(f"Admin leaderboard failed: {e}")
+            await update.message.reply_text(f"Error: {e}")
+
+    async def _send_long_message(self, update: Update, message: str):
+        """Helper to send long messages split into chunks."""
+        if len(message) > 4000:
+            parts = []
+            current = ""
+            for line in message.split('\n'):
+                if len(current) + len(line) + 1 > 4000:
+                    parts.append(current)
+                    current = line
+                else:
+                    current += '\n' + line if current else line
+            if current:
+                parts.append(current)
+            for part in parts:
+                await update.message.reply_text(part, parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
 
     # =========================================================================
     # WATCHLIST COMMANDS

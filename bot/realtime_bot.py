@@ -27,6 +27,15 @@ from database import get_connection
 from bot.alert_formatter import AlertFormatter, SOULSCANNER_BOT
 from collectors.helius import helius_buy_alert_rotator  # 5 keys for real-time buy alerts
 
+# Position lifecycle tracking (V3 - track outcomes from entry to exit)
+try:
+    from bot.lifecycle_tracker import get_lifecycle_tracker, should_track_position
+    HAS_LIFECYCLE_TRACKER = True
+except ImportError:
+    HAS_LIFECYCLE_TRACKER = False
+    get_lifecycle_tracker = None
+    should_track_position = None
+
 # V3 Edge Auto-Trader imports (optional - graceful fallback if not available)
 try:
     from ml.predictor import get_predictor, predict_trade
@@ -563,6 +572,12 @@ class RealTimeBot:
         self.insider_tracker = InsiderTracker()  # Insider tracking
         self.milestone_tracker = WinMilestoneTracker()  # Win milestone tracking
 
+        # Position lifecycle tracker for ML training data
+        self.lifecycle_tracker = None
+        if HAS_LIFECYCLE_TRACKER:
+            self.lifecycle_tracker = get_lifecycle_tracker()
+            logger.info("✅ Lifecycle tracker initialized")
+
         self.qualified_wallets: Dict[str, Dict] = {}
         self.insider_wallets: Set[str] = set()  # Insider wallet addresses
         self.watchlist_wallets: Set[str] = set()  # Watchlist wallet addresses
@@ -918,10 +933,12 @@ class RealTimeBot:
 
             return
 
-        # 4. Handle INSIDER wallets - buys only, special alert format
+        # 4. Handle INSIDER wallets - buys (alert) + sells (lifecycle only)
         if is_insider:
-            if tx_type != 'buy':
-                return  # Skip sells for insider alerts
+            if tx_type == 'sell':
+                # Record sell but keep tracking token lifecycle
+                await self._record_lifecycle_sell(wallet_addr, parsed)
+                return
 
             # Lower minimum for insiders (0.5 SOL)
             if sol_amount < 0.5:
@@ -936,9 +953,11 @@ class RealTimeBot:
                 await self._send_watchlist_buy_alert(wallet_addr, parsed)
             return
 
-        # 5. Handle QUALIFIED wallets - buys only
-        if tx_type != 'buy':
-            return  # Skip sells for qualified wallets
+        # 5. Handle QUALIFIED wallets - buys (alert) + sells (lifecycle only)
+        if tx_type == 'sell':
+            # Record sell but keep tracking token lifecycle
+            await self._record_lifecycle_sell(wallet_addr, parsed)
+            return
 
         # Check buy amount
         if sol_amount < MIN_BUY_AMOUNT_SOL:
@@ -1075,6 +1094,28 @@ class RealTimeBot:
                     self.milestone_tracker.record_entry(
                         wallet_addr, token_address, entry_mcap, sent_message.message_id
                     )
+
+                # Create position lifecycle tracker for ML training (smart filtering)
+                wallet_tier = wallet_data.get('tier') if wallet_data else None
+                if (self.lifecycle_tracker and entry_mcap > 0 and
+                    should_track_position(sol_amount, wallet_tier, 'qualified')):
+                    try:
+                        self.lifecycle_tracker.create_position(
+                            wallet_address=wallet_addr,
+                            token_address=token_address,
+                            token_symbol=token_info.get('symbol', '???'),
+                            entry_timestamp=tx_timestamp,
+                            entry_mc=entry_mcap,
+                            entry_liquidity=token_info.get('liquidity', 0),
+                            buy_sol_amount=sol_amount,
+                            buy_event_id=None,  # Will be linked if trade_events exists
+                            wallet_type='qualified',
+                            wallet_tier=wallet_tier,
+                            alert_message_id=sent_message.message_id,
+                        )
+                        logger.info(f"📊 Position tracked: {wallet_addr[:8]}... {sol_amount:.2f} SOL")
+                    except Exception as e:
+                        logger.debug(f"Lifecycle tracking error: {e}")
 
             logger.info(f"✅ QUALIFIED ALERT: {wallet_data.get('tier')} bought {token_info.get('symbol')} for {sol_amount:.2f} SOL")
 
@@ -1237,6 +1278,27 @@ class RealTimeBot:
                         wallet_addr, token_address, market_cap, sent_message.message_id
                     )
 
+                # Create position lifecycle tracker for ML training (smart filtering)
+                if (self.lifecycle_tracker and market_cap > 0 and
+                    should_track_position(sol_amount, pattern, 'insider')):
+                    try:
+                        self.lifecycle_tracker.create_position(
+                            wallet_address=wallet_addr,
+                            token_address=token_address,
+                            token_symbol=token_symbol,
+                            entry_timestamp=tx_timestamp,
+                            entry_mc=market_cap,
+                            entry_liquidity=liquidity,
+                            buy_sol_amount=sol_amount,
+                            buy_event_id=None,
+                            wallet_type='insider',
+                            wallet_tier=pattern,
+                            alert_message_id=sent_message.message_id,
+                        )
+                        logger.info(f"📊 Insider position tracked: {wallet_addr[:8]}... {sol_amount:.2f} SOL")
+                    except Exception as e:
+                        logger.debug(f"Lifecycle tracking error: {e}")
+
             logger.info(f"✅ INSIDER ALERT: {pattern} insider bought {token_symbol} for {sol_amount:.2f} SOL")
 
         except Exception as e:
@@ -1271,6 +1333,27 @@ class RealTimeBot:
         # Get SOL price for USD values
         sol_price = await self.price_service.get_sol_price()
         usd_value = sol_amount * sol_price
+
+        # Create position lifecycle tracker for ML training (watchlist - smart filter)
+        if (self.lifecycle_tracker and market_cap > 0 and
+            should_track_position(sol_amount, None, 'watchlist')):
+            try:
+                self.lifecycle_tracker.create_position(
+                    wallet_address=wallet_addr,
+                    token_address=token_address,
+                    token_symbol=token_symbol,
+                    entry_timestamp=parsed.get('timestamp', int(datetime.now().timestamp())),
+                    entry_mc=market_cap,
+                    entry_liquidity=liquidity,
+                    buy_sol_amount=sol_amount,
+                    buy_event_id=None,
+                    wallet_type='watchlist',
+                    wallet_tier=None,
+                    alert_message_id=None,  # DM alerts don't go to channel
+                )
+                logger.info(f"📊 Watchlist position tracked: {wallet_addr[:8]}... {sol_amount:.2f} SOL")
+            except Exception as e:
+                logger.debug(f"Lifecycle tracking error (watchlist): {e}")
 
         # Get wallet performance from recent trades
         recent_trades = await self._get_recent_trades(wallet_addr)
@@ -1458,6 +1541,30 @@ class RealTimeBot:
 
         logger.info(f"📤 WATCHLIST SELL: {wallet_addr[:12]}... sold {sol_amount:.2f} SOL of ${token_symbol} ({pnl_str})")
 
+        # Record sell but keep tracking token lifecycle
+        if self.lifecycle_tracker:
+            try:
+                lifecycle_position = self.lifecycle_tracker.get_oldest_open_position(
+                    wallet_address=wallet_addr,
+                    token_address=token_address,
+                )
+                if lifecycle_position:
+                    exit_timestamp = parsed.get('timestamp', int(datetime.now().timestamp()))
+
+                    # Record sell but keep position OPEN for lifecycle tracking
+                    result = self.lifecycle_tracker.record_sell_event(
+                        position_id=lifecycle_position['id'],
+                        exit_timestamp=exit_timestamp,
+                        sell_sol_received=sol_amount,
+                        sell_event_id=None,
+                    )
+                    logger.info(
+                        f"💰 Sell recorded: {token_symbol} @ {result.get('wallet_roi_percent', 0):+.1f}% | "
+                        f"Tracking token lifecycle continues..."
+                    )
+            except Exception as e:
+                logger.debug(f"Lifecycle record error: {e}")
+
         # Send personalized alert to each subscriber
         for sub in subscribers:
             user_id = sub['user_id']
@@ -1512,6 +1619,51 @@ class RealTimeBot:
 
             except Exception as e:
                 logger.warning(f"Failed to send watchlist sell alert to {user_id}: {e}")
+
+    async def _record_lifecycle_sell(self, wallet_addr: str, parsed: Dict):
+        """
+        Record sell event but KEEP position open for lifecycle tracking.
+
+        Position tracking continues until 48h to capture full token lifecycle.
+        Outcome is based on TOKEN performance, not wallet's exit timing.
+
+        This teaches ML: "What happens to tokens after elite wallets buy?"
+        """
+        if not self.lifecycle_tracker:
+            return
+
+        token_address = parsed['token_address']
+        sol_amount = parsed['sol_amount']
+
+        try:
+            # Find matching open position (FIFO)
+            lifecycle_position = self.lifecycle_tracker.get_oldest_open_position(
+                wallet_address=wallet_addr,
+                token_address=token_address,
+            )
+
+            if not lifecycle_position:
+                logger.debug(f"No open position found for {wallet_addr[:8]}... sell")
+                return
+
+            exit_timestamp = parsed.get('timestamp', int(datetime.now().timestamp()))
+            token_symbol = lifecycle_position.get('token_symbol', '???')
+
+            # Record sell but keep position OPEN
+            result = self.lifecycle_tracker.record_sell_event(
+                position_id=lifecycle_position['id'],
+                exit_timestamp=exit_timestamp,
+                sell_sol_received=sol_amount,
+                sell_event_id=None,
+            )
+
+            logger.info(
+                f"💰 Sell recorded: {token_symbol} @ {result.get('wallet_roi_percent', 0):+.1f}% | "
+                f"Position continues tracking token lifecycle..."
+            )
+
+        except Exception as e:
+            logger.debug(f"Error recording lifecycle sell: {e}")
 
     def _parse_swap(self, tx: Dict, wallet_addr: str) -> Optional[Dict]:
         """Parse a swap transaction."""

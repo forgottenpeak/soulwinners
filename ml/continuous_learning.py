@@ -523,9 +523,94 @@ def get_dataset_stats() -> Dict:
     # Pending labeling
     stats["pending_labeling"] = stats["total_buy_events"] - stats["labeled_events"]
 
+    # Position lifecycle stats (V3)
+    try:
+        cursor.execute("SELECT COUNT(*) FROM position_lifecycle")
+        stats["lifecycle_total"] = cursor.fetchone()[0]
+
+        cursor.execute("""
+            SELECT COUNT(*) FROM position_lifecycle
+            WHERE outcome IS NOT NULL AND outcome != 'open'
+        """)
+        stats["lifecycle_labeled"] = cursor.fetchone()[0]
+
+        cursor.execute("""
+            SELECT outcome, COUNT(*)
+            FROM position_lifecycle
+            WHERE outcome IS NOT NULL AND outcome != 'open'
+            GROUP BY outcome
+        """)
+        stats["lifecycle_by_outcome"] = dict(cursor.fetchall())
+    except:
+        stats["lifecycle_total"] = 0
+        stats["lifecycle_labeled"] = 0
+        stats["lifecycle_by_outcome"] = {}
+
     conn.close()
 
     return stats
+
+
+def get_lifecycle_training_data() -> list:
+    """
+    Get training data from position_lifecycle table.
+
+    This provides higher quality labeled data with:
+    - Accurate entry/exit timestamps
+    - Peak MC tracked hourly
+    - Proper sell matching (FIFO)
+
+    Returns:
+        List of dicts with training features and labels
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Join with trade_events to get full feature set
+        cursor.execute("""
+            SELECT
+                pl.id,
+                pl.wallet_address,
+                pl.wallet_type,
+                pl.wallet_tier,
+                pl.token_address,
+                pl.token_symbol,
+                pl.entry_timestamp,
+                pl.entry_mc,
+                pl.entry_liquidity,
+                pl.buy_sol_amount,
+                pl.peak_mc,
+                pl.time_to_peak_hours,
+                pl.exit_mc,
+                pl.sell_sol_received,
+                pl.final_roi_percent,
+                pl.hold_duration_hours,
+                pl.outcome,
+                -- Trade event features if available
+                te.token_age_hours,
+                te.volume_24h_at_trade,
+                te.holder_count_at_trade,
+                te.buy_sell_ratio_at_trade
+            FROM position_lifecycle pl
+            LEFT JOIN trade_events te ON pl.buy_event_id = te.id
+            WHERE pl.outcome IS NOT NULL
+            AND pl.outcome != 'open'
+            AND pl.final_roi_percent IS NOT NULL
+            ORDER BY pl.entry_timestamp DESC
+        """)
+
+        columns = [desc[0] for desc in cursor.description]
+        rows = cursor.fetchall()
+
+        return [dict(zip(columns, row)) for row in rows]
+
+    except Exception as e:
+        logger.warning(f"Error getting lifecycle training data: {e}")
+        return []
+
+    finally:
+        conn.close()
 
 
 def main():

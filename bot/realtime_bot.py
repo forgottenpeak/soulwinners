@@ -774,17 +774,28 @@ class RealTimeBot:
             return False
 
     async def _poll_cycle(self):
-        """One polling cycle - check qualified + insider + watchlist wallets."""
-        # Check if buy_alerts is enabled
-        if not self._is_cron_enabled('buy_alerts'):
-            logger.info("📡 Poll cycle skipped - buy_alerts DISABLED")
-            return
+        """
+        One polling cycle - check qualified + insider + watchlist wallets.
 
+        ALWAYS monitors wallets for lifecycle tracking.
+        Channel alerts are controlled separately by buy_alerts setting.
+        """
         total_qualified = len(self.qualified_wallets)
         total_insider = len(self.insider_wallets)
         total_watchlist = len(self.watchlist_wallets)
 
-        logger.info(f"📡 Poll cycle starting ({total_qualified} qualified + {total_insider} insiders + {total_watchlist} watchlist)...")
+        # Check alert mode (for logging only - monitoring always happens)
+        alerts_enabled = self._is_cron_enabled('buy_alerts')
+        lifecycle_enabled = self._is_lifecycle_tracking_enabled()
+
+        mode = []
+        if lifecycle_enabled:
+            mode.append("lifecycle")
+        if alerts_enabled:
+            mode.append("alerts")
+        mode_str = "+".join(mode) if mode else "monitoring only"
+
+        logger.info(f"📡 Poll cycle [{mode_str}] ({total_qualified} qualified + {total_insider} insiders + {total_watchlist} watchlist)...")
 
         checked = 0
 

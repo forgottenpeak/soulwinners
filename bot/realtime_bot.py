@@ -717,20 +717,28 @@ class RealTimeBot:
 
         Returns True if position was created successfully.
         """
+        # Check 1: Lifecycle tracker initialized
         if not self.lifecycle_tracker:
+            logger.warning(f"📊 Lifecycle skip: tracker not initialized")
             return False
 
+        # Check 2: Lifecycle tracking enabled in settings
         if not self._is_lifecycle_tracking_enabled():
+            logger.debug(f"📊 Lifecycle skip: tracking disabled in settings")
             return False
 
+        # Check 3: Valid market cap
         if entry_mcap <= 0:
+            logger.debug(f"📊 Lifecycle skip: no market cap for {token_symbol}")
             return False
 
+        # Check 4: Meets minimum SOL threshold (0.8 SOL)
         if not should_track_position(sol_amount, wallet_tier, wallet_type):
+            logger.debug(f"📊 Lifecycle skip: {sol_amount:.2f} SOL below threshold for {wallet_type}/{wallet_tier}")
             return False
 
         try:
-            self.lifecycle_tracker.create_position(
+            position_id = self.lifecycle_tracker.create_position(
                 wallet_address=wallet_addr,
                 token_address=token_address,
                 token_symbol=token_symbol,
@@ -743,10 +751,10 @@ class RealTimeBot:
                 wallet_tier=wallet_tier,
                 alert_message_id=alert_message_id,
             )
-            logger.info(f"📊 Lifecycle position created: {wallet_addr[:8]}... {sol_amount:.2f} SOL ({wallet_type})")
+            logger.info(f"📊 LIFECYCLE CREATED: {token_symbol} | {wallet_addr[:8]}... | {sol_amount:.2f} SOL | MC: ${entry_mcap:,.0f} | {wallet_type}")
             return True
         except Exception as e:
-            logger.debug(f"Lifecycle tracking error: {e}")
+            logger.error(f"📊 Lifecycle ERROR: {e} | {wallet_addr[:8]}... | {token_symbol}")
             return False
 
     def _is_ai_gate_enabled(self) -> bool:

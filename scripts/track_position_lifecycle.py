@@ -79,6 +79,49 @@ async def fetch_token_mc(token_address: str, session: aiohttp.ClientSession) -> 
     return 0
 
 
+async def fetch_token_metrics(token_address: str, session: aiohttp.ClientSession) -> dict:
+    """
+    Fetch comprehensive token metrics from DexScreener.
+
+    Returns dict with:
+    - market_cap
+    - volume_1h, volume_24h
+    - holder_count (if available)
+    - buys_1h, sells_1h
+    """
+    try:
+        url = f"https://api.dexscreener.com/tokens/v1/solana/{token_address}"
+        async with session.get(url, timeout=10) as response:
+            if response.status == 200:
+                data = await response.json()
+                if data and len(data) > 0:
+                    pair = data[0]
+                    volume = pair.get('volume', {})
+                    txns = pair.get('txns', {})
+                    txns_h1 = txns.get('h1', {})
+                    info = pair.get('info', {})
+
+                    return {
+                        'market_cap': float(pair.get('marketCap', 0) or 0),
+                        'volume_1h': float(volume.get('h1', 0) or 0),
+                        'volume_24h': float(volume.get('h24', 0) or 0),
+                        'holder_count': int(info.get('holders', 0) or 0),
+                        'buys_1h': int(txns_h1.get('buys', 0) or 0),
+                        'sells_1h': int(txns_h1.get('sells', 0) or 0),
+                    }
+    except Exception as e:
+        logger.debug(f"Could not fetch metrics for {token_address[:12]}...: {e}")
+
+    return {
+        'market_cap': 0,
+        'volume_1h': 0,
+        'volume_24h': 0,
+        'holder_count': 0,
+        'buys_1h': 0,
+        'sells_1h': 0,
+    }
+
+
 async def update_open_positions(tracker, max_positions: int = 1000, comprehensive: bool = True) -> Dict:
     """
     Update all open positions with comprehensive metrics.
@@ -240,19 +283,39 @@ async def update_open_positions(tracker, max_positions: int = 1000, comprehensiv
                                 )
 
                     else:
-                        # BASIC: Just MC update
-                        current_mc = await fetch_token_mc(token_address, session)
+                        # ENHANCED BASIC: Fetch metrics and update with momentum
+                        metrics = await fetch_token_metrics(token_address, session)
+                        current_mc = metrics['market_cap']
 
                         if current_mc <= 0:
                             stats['dead_tokens'] += 1
                             tracker.update_position_mc(position_id, 0)
                             continue
 
-                        result = tracker.update_position_mc(position_id, current_mc)
+                        # Use enhanced update with momentum calculation
+                        result = tracker.update_position_with_metrics(
+                            position_id=position_id,
+                            current_mc=current_mc,
+                            volume_1h=metrics['volume_1h'],
+                            volume_24h=metrics['volume_24h'],
+                            holder_count=metrics['holder_count'],
+                            buys_1h=metrics['buys_1h'],
+                            sells_1h=metrics['sells_1h'],
+                        )
                         stats['positions_checked'] += 1
 
                         if result.get('new_peak'):
                             stats['peaks_updated'] += 1
+                            logger.info(
+                                f"📈 New peak: {token_symbol} -> ${current_mc:,.0f} "
+                                f"(momentum: {result.get('momentum_score', 0):+.1f})"
+                            )
+
+                        # Log momentum changes
+                        if result.get('momentum_trend') == 'up':
+                            logger.debug(f"🚀 {token_symbol}: Momentum UP ({result.get('momentum_score'):+.1f})")
+                        elif result.get('momentum_trend') == 'down':
+                            logger.debug(f"📉 {token_symbol}: Momentum DOWN ({result.get('momentum_score'):+.1f})")
 
                         # Basic stage detection (even without comprehensive)
                         if stage_detector:

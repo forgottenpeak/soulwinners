@@ -2,11 +2,20 @@
 Position Lifecycle Tracker
 
 Tracks positions from entry to exit with real-time updates.
-- Records buy entries from realtime_bot.py
+- Records buy entries from realtime_bot.py / webhook_server.py
 - Matches sells to open buys (FIFO)
-- Updates peak MC hourly
-- Labels outcomes after 48h or on sell
+- Updates peak MC hourly with momentum metrics
+- Tracks elite wallet exits and holding counts
+- Labels outcomes after 48h based on TOKEN performance
+
+V2 Features:
+- Sell tracking via wallet_exits table
+- Momentum score calculation
+- Volume trend tracking
+- Holder growth rate
+- Elite exit/holding counts
 """
+import json
 import logging
 import time
 from datetime import datetime
@@ -18,8 +27,8 @@ from database import get_connection
 logger = logging.getLogger(__name__)
 
 # Outcome thresholds (can be configured via settings)
-RUNNER_THRESHOLD = 100  # +100% ROI = runner
-RUG_THRESHOLD = -80     # -80% ROI = rug
+RUNNER_THRESHOLD = 200  # 3x from entry = runner (was 2x, now more strict)
+RUG_THRESHOLD = -50     # -50% from peak = rug (token crashed)
 MAX_TRACKING_HOURS = 48  # Auto-label after 48 hours
 
 # Minimum buy amount to track (filter noise)
@@ -27,6 +36,11 @@ MIN_TRACK_SOL = 0.8  # Only track positions >= 0.8 SOL (quality filter)
 
 # Maximum open positions to prevent overload
 MAX_TRACKED_POSITIONS = 1000
+
+# Momentum calculation settings
+MC_SAMPLE_INTERVAL = 3600      # Store MC sample every hour
+MAX_MC_SAMPLES = 48            # Keep 48 samples (48 hours of data)
+MOMENTUM_WINDOW_HOURS = 6      # Calculate momentum over 6 hours
 
 
 def should_track_position(buy_amount: float, wallet_tier: str = None, wallet_type: str = None) -> bool:
@@ -437,6 +451,413 @@ class PositionLifecycleTracker:
         finally:
             conn.close()
 
+    def update_position_with_metrics(
+        self,
+        position_id: int,
+        current_mc: float,
+        volume_1h: float = 0,
+        volume_24h: float = 0,
+        holder_count: int = 0,
+        buys_1h: int = 0,
+        sells_1h: int = 0,
+    ) -> Dict:
+        """
+        Update position with comprehensive metrics (called hourly).
+
+        Calculates:
+        - Peak MC tracking
+        - MC history for momentum calculation
+        - Momentum score and trend
+        - Volume trend (comparing to previous)
+        - Holder growth rate
+        - Buy/sell ratio
+
+        Args:
+            position_id: Position ID
+            current_mc: Current market cap
+            volume_1h: 1-hour volume
+            volume_24h: 24-hour volume
+            holder_count: Current holder count
+            buys_1h: Buys in last hour
+            sells_1h: Sells in last hour
+
+        Returns:
+            Dict with update status and calculated metrics
+        """
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Get current position data
+            cursor.execute("""
+                SELECT peak_mc, entry_mc, entry_timestamp, check_count,
+                       mc_samples, prev_volume_1h, prev_holder_count,
+                       volume_1h, holder_count
+                FROM position_lifecycle
+                WHERE id = ?
+            """, (position_id,))
+
+            row = cursor.fetchone()
+            if not row:
+                return {'error': 'Position not found'}
+
+            (peak_mc, entry_mc, entry_timestamp, check_count,
+             mc_samples_json, prev_volume, prev_holders,
+             stored_volume_1h, stored_holders) = row
+
+            now = int(time.time())
+
+            # Parse MC history
+            try:
+                mc_samples = json.loads(mc_samples_json) if mc_samples_json else []
+            except:
+                mc_samples = []
+
+            # Add new MC sample
+            mc_samples.append({'ts': now, 'mc': current_mc})
+
+            # Keep only last MAX_MC_SAMPLES
+            if len(mc_samples) > MAX_MC_SAMPLES:
+                mc_samples = mc_samples[-MAX_MC_SAMPLES:]
+
+            # Calculate momentum score
+            momentum_score, momentum_trend = self._calculate_momentum(
+                mc_samples, entry_mc
+            )
+
+            # Calculate volume trend
+            volume_trend, volume_change_1h = self._calculate_volume_trend(
+                volume_1h, prev_volume or stored_volume_1h or 0
+            )
+
+            # Calculate holder growth rate
+            holder_change_rate = 0
+            new_holders_24h = 0
+            if prev_holders and prev_holders > 0:
+                holder_change_rate = ((holder_count - prev_holders) / prev_holders) * 100
+            elif stored_holders and stored_holders > 0:
+                holder_change_rate = ((holder_count - stored_holders) / stored_holders) * 100
+
+            # Estimate new holders in 24h (based on hourly rate)
+            if holder_change_rate > 0:
+                new_holders_24h = int(holder_count * (holder_change_rate / 100) * 24)
+
+            # Calculate buy/sell ratio
+            buy_sell_ratio = 0.5  # Default neutral
+            if buys_1h + sells_1h > 0:
+                buy_sell_ratio = buys_1h / (buys_1h + sells_1h)
+
+            # Check if new peak
+            new_peak = current_mc > (peak_mc or 0)
+
+            # Prepare update
+            if new_peak:
+                time_to_peak = (now - entry_timestamp) / 3600.0
+                cursor.execute("""
+                    UPDATE position_lifecycle SET
+                        peak_mc = ?,
+                        peak_timestamp = ?,
+                        time_to_peak_hours = ?,
+                        current_mc = ?,
+                        last_checked_timestamp = ?,
+                        check_count = ?,
+                        mc_samples = ?,
+                        momentum_score = ?,
+                        momentum_trend = ?,
+                        volume_trend = ?,
+                        volume_change_1h = ?,
+                        volume_1h = ?,
+                        volume_24h = ?,
+                        prev_volume_1h = ?,
+                        holder_count = ?,
+                        holder_change_rate = ?,
+                        new_holders_24h = ?,
+                        prev_holder_count = ?,
+                        buy_sell_ratio = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                """, (
+                    current_mc,
+                    now,
+                    time_to_peak,
+                    current_mc,
+                    now,
+                    (check_count or 0) + 1,
+                    json.dumps(mc_samples),
+                    momentum_score,
+                    momentum_trend,
+                    volume_trend,
+                    volume_change_1h,
+                    volume_1h,
+                    volume_24h,
+                    volume_1h,  # Store current as prev for next time
+                    holder_count,
+                    holder_change_rate,
+                    new_holders_24h,
+                    holder_count,  # Store current as prev for next time
+                    buy_sell_ratio,
+                    datetime.now().isoformat(),
+                    position_id,
+                ))
+            else:
+                cursor.execute("""
+                    UPDATE position_lifecycle SET
+                        current_mc = ?,
+                        last_checked_timestamp = ?,
+                        check_count = ?,
+                        mc_samples = ?,
+                        momentum_score = ?,
+                        momentum_trend = ?,
+                        volume_trend = ?,
+                        volume_change_1h = ?,
+                        volume_1h = ?,
+                        volume_24h = ?,
+                        prev_volume_1h = ?,
+                        holder_count = ?,
+                        holder_change_rate = ?,
+                        new_holders_24h = ?,
+                        prev_holder_count = ?,
+                        buy_sell_ratio = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                """, (
+                    current_mc,
+                    now,
+                    (check_count or 0) + 1,
+                    json.dumps(mc_samples),
+                    momentum_score,
+                    momentum_trend,
+                    volume_trend,
+                    volume_change_1h,
+                    volume_1h,
+                    volume_24h,
+                    volume_1h,
+                    holder_count,
+                    holder_change_rate,
+                    new_holders_24h,
+                    holder_count,
+                    buy_sell_ratio,
+                    datetime.now().isoformat(),
+                    position_id,
+                ))
+
+            conn.commit()
+
+            return {
+                'position_id': position_id,
+                'current_mc': current_mc,
+                'new_peak': new_peak,
+                'peak_mc': current_mc if new_peak else peak_mc,
+                'momentum_score': momentum_score,
+                'momentum_trend': momentum_trend,
+                'volume_trend': volume_trend,
+                'buy_sell_ratio': buy_sell_ratio,
+                'holder_change_rate': holder_change_rate,
+            }
+
+        finally:
+            conn.close()
+
+    def _calculate_momentum(
+        self,
+        mc_samples: List[Dict],
+        entry_mc: float
+    ) -> tuple:
+        """
+        Calculate momentum score and trend from MC history.
+
+        Momentum = weighted average of recent MC changes.
+        Higher weight for more recent samples.
+
+        Returns:
+            (momentum_score, momentum_trend)
+            - momentum_score: -100 to +100
+            - momentum_trend: 'up', 'down', 'neutral'
+        """
+        if len(mc_samples) < 2:
+            return 0, 'neutral'
+
+        # Get samples from last MOMENTUM_WINDOW_HOURS
+        cutoff = time.time() - (MOMENTUM_WINDOW_HOURS * 3600)
+        recent = [s for s in mc_samples if s['ts'] >= cutoff]
+
+        if len(recent) < 2:
+            # Not enough recent data, use all samples
+            recent = mc_samples[-6:] if len(mc_samples) >= 6 else mc_samples
+
+        # Calculate weighted momentum
+        momentum = 0
+        total_weight = 0
+
+        for i in range(1, len(recent)):
+            prev_mc = recent[i-1]['mc']
+            curr_mc = recent[i]['mc']
+
+            if prev_mc > 0:
+                change = ((curr_mc - prev_mc) / prev_mc) * 100
+                # More recent = higher weight
+                weight = i
+                momentum += change * weight
+                total_weight += weight
+
+        if total_weight > 0:
+            momentum = momentum / total_weight
+
+        # Also factor in entry-to-current change
+        if entry_mc and entry_mc > 0:
+            current_mc = recent[-1]['mc'] if recent else 0
+            entry_change = ((current_mc - entry_mc) / entry_mc) * 100
+            # Blend with recent momentum (60% recent, 40% overall)
+            momentum = momentum * 0.6 + entry_change * 0.1
+
+        # Clamp to -100 to +100
+        momentum_score = max(-100, min(100, momentum))
+
+        # Determine trend
+        if momentum_score > 10:
+            momentum_trend = 'up'
+        elif momentum_score < -10:
+            momentum_trend = 'down'
+        else:
+            momentum_trend = 'neutral'
+
+        return round(momentum_score, 2), momentum_trend
+
+    def _calculate_volume_trend(
+        self,
+        current_volume: float,
+        previous_volume: float
+    ) -> tuple:
+        """
+        Calculate volume trend by comparing current to previous.
+
+        Returns:
+            (volume_trend, volume_change_percent)
+            - volume_trend: 'up', 'down', 'stable'
+            - volume_change_percent: % change
+        """
+        if previous_volume <= 0:
+            return 'stable', 0
+
+        change = ((current_volume - previous_volume) / previous_volume) * 100
+
+        if change > 20:
+            trend = 'up'
+        elif change < -20:
+            trend = 'down'
+        else:
+            trend = 'stable'
+
+        return trend, round(change, 2)
+
+    def update_elite_counts(self, token_address: str) -> Dict:
+        """
+        Update elite exit/holding counts for all positions of a token.
+
+        Called after recording a sell to refresh counts.
+
+        Returns:
+            Dict with updated counts
+        """
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Count total open positions for this token
+            cursor.execute("""
+                SELECT COUNT(DISTINCT wallet_address)
+                FROM position_lifecycle
+                WHERE token_address = ?
+                AND (outcome IS NULL OR outcome = 'open')
+            """, (token_address,))
+            total_tracking = cursor.fetchone()[0] or 0
+
+            # Count exits for this token
+            cursor.execute("""
+                SELECT COUNT(DISTINCT wallet_address)
+                FROM wallet_exits
+                WHERE token_address = ?
+            """, (token_address,))
+            total_exits = cursor.fetchone()[0] or 0
+
+            still_holding = max(0, total_tracking - total_exits)
+
+            # Update all positions for this token
+            cursor.execute("""
+                UPDATE position_lifecycle
+                SET elite_exit_count = ?,
+                    elite_still_holding = ?,
+                    updated_at = ?
+                WHERE token_address = ?
+                AND (outcome IS NULL OR outcome = 'open')
+            """, (
+                total_exits,
+                still_holding,
+                datetime.now().isoformat(),
+                token_address,
+            ))
+
+            conn.commit()
+
+            return {
+                'token_address': token_address,
+                'total_exits': total_exits,
+                'still_holding': still_holding,
+            }
+
+        finally:
+            conn.close()
+
+    def get_token_exit_summary(self, token_address: str) -> Dict:
+        """
+        Get summary of elite exits for a specific token.
+
+        Returns:
+            Dict with exit statistics
+        """
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Get exit data
+            cursor.execute("""
+                SELECT
+                    COUNT(*) as total_exits,
+                    AVG(roi_at_exit) as avg_roi,
+                    MIN(exit_timestamp) as first_exit,
+                    MAX(exit_timestamp) as last_exit,
+                    AVG(hold_duration_hours) as avg_hold_hours
+                FROM wallet_exits
+                WHERE token_address = ?
+            """, (token_address,))
+
+            row = cursor.fetchone()
+
+            # Get still holding count
+            cursor.execute("""
+                SELECT COUNT(DISTINCT wallet_address)
+                FROM position_lifecycle
+                WHERE token_address = ?
+                AND (outcome IS NULL OR outcome = 'open')
+                AND wallet_address NOT IN (
+                    SELECT wallet_address FROM wallet_exits
+                    WHERE token_address = ?
+                )
+            """, (token_address, token_address))
+            still_holding = cursor.fetchone()[0] or 0
+
+            return {
+                'total_exits': row[0] or 0,
+                'avg_roi': row[1] or 0,
+                'first_exit_ts': row[2],
+                'last_exit_ts': row[3],
+                'avg_hold_hours': row[4] or 0,
+                'still_holding': still_holding,
+            }
+
+        finally:
+            conn.close()
+
     def auto_label_old_position(
         self,
         position_id: int,
@@ -445,8 +866,8 @@ class PositionLifecycleTracker:
         Auto-label a position after 48h based on TOKEN lifecycle.
 
         Outcome is based on what happened to the TOKEN, not when wallet sold:
-        - RUNNER: Token peaked 2x+ from entry (opportunity existed)
-        - RUG: Token dumped 80%+ from entry (token died)
+        - RUNNER: Token MC >= 3x from entry (200%+ gain opportunity)
+        - RUG: Token MC < 50% of peak (crashed from high)
         - SIDEWAYS: Neither extreme
 
         This teaches ML: "What happens to tokens after elite wallets buy?"
@@ -463,7 +884,8 @@ class PositionLifecycleTracker:
         try:
             cursor.execute("""
                 SELECT entry_mc, peak_mc, current_mc, entry_timestamp,
-                       buy_sol_amount, sell_sol_received
+                       buy_sol_amount, sell_sol_received,
+                       elite_exit_count, elite_still_holding, momentum_score
                 FROM position_lifecycle
                 WHERE id = ? AND (outcome IS NULL OR outcome = 'open')
             """, (position_id,))
@@ -472,34 +894,42 @@ class PositionLifecycleTracker:
             if not row:
                 return {'error': 'Position not found or already labeled'}
 
-            entry_mc, peak_mc, current_mc, entry_timestamp, buy_sol, sell_sol = row
+            (entry_mc, peak_mc, current_mc, entry_timestamp,
+             buy_sol, sell_sol, exit_count, still_holding, momentum) = row
 
             # Calculate TOKEN lifecycle ROI (not wallet P/L)
             if entry_mc and entry_mc > 0:
-                # Peak ROI: How high did the token go?
+                # Peak ROI: How high did the token go from entry?
                 peak_roi = ((peak_mc or entry_mc) - entry_mc) / entry_mc * 100
-                # Current ROI: Where is token now?
+                # Current ROI: Where is token now vs entry?
                 current_roi = ((current_mc or 0) - entry_mc) / entry_mc * 100
             else:
                 peak_roi = 0
                 current_roi = 0
 
+            # Calculate drawdown from peak
+            drawdown_from_peak = 0
+            if peak_mc and peak_mc > 0:
+                drawdown_from_peak = ((current_mc or 0) - peak_mc) / peak_mc * 100
+
             # Determine outcome based on TOKEN LIFECYCLE
-            # This is about the token's performance, not the wallet's timing
+            # RUNNER: Token hit 3x+ at some point (200%+ gain)
+            # RUG: Token crashed 50%+ from its peak
+            # SIDEWAYS: Everything else
+
             if peak_roi >= self.runner_threshold:
-                # Token peaked at 2x+ = RUNNER
-                # Even if wallet sold at 1.5x, the token was a runner
+                # Token peaked at 3x+ from entry = RUNNER
+                # Even if wallet sold earlier or token later crashed
                 outcome = 'runner'
                 final_roi = peak_roi
-            elif current_roi <= self.rug_threshold or current_mc == 0:
-                # Token dumped 80%+ or is dead = RUG
-                # Even if wallet sold at breakeven, the token rugged
+            elif drawdown_from_peak <= self.rug_threshold or current_mc == 0:
+                # Token crashed 50%+ from peak or is dead = RUG
                 outcome = 'rug'
                 final_roi = current_roi
             else:
                 # Token didn't moon or rug = SIDEWAYS
                 outcome = 'sideways'
-                final_roi = max(peak_roi, current_roi)  # Best case for sideways
+                final_roi = max(peak_roi, current_roi)
 
             now = int(time.time())
             hold_duration = (now - entry_timestamp) / 3600.0
@@ -528,10 +958,13 @@ class PositionLifecycleTracker:
 
             conn.commit()
 
-            wallet_note = f", wallet sold at {wallet_roi:+.1f}%" if wallet_roi else ""
+            # Build detailed log message
+            wallet_note = f", wallet sold at {wallet_roi:+.1f}%" if wallet_roi is not None else ""
+            elite_note = f", {exit_count or 0} exits/{still_holding or 0} holding" if exit_count else ""
             logger.info(
-                f"🏷️  Labeled position {position_id}: {outcome} "
-                f"(token peak: {peak_roi:+.1f}%, current: {current_roi:+.1f}%{wallet_note})"
+                f"🏷️  Labeled position {position_id}: {outcome.upper()} "
+                f"(peak: {peak_roi:+.1f}%, current: {current_roi:+.1f}%, "
+                f"drawdown: {drawdown_from_peak:+.1f}%{wallet_note}{elite_note})"
             )
 
             return {
@@ -539,9 +972,12 @@ class PositionLifecycleTracker:
                 'outcome': outcome,
                 'token_peak_roi': peak_roi,
                 'token_current_roi': current_roi,
+                'drawdown_from_peak': drawdown_from_peak,
                 'final_roi_percent': final_roi,
                 'wallet_roi_percent': wallet_roi,
                 'hold_duration_hours': hold_duration,
+                'elite_exit_count': exit_count,
+                'elite_still_holding': still_holding,
             }
 
         finally:

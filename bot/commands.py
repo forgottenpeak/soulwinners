@@ -133,6 +133,7 @@ class CommandBot:
         # Register callback handler for inline buttons
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
 
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text))
         # Initialize watchlist table
         self._init_watchlist_table()
 
@@ -3286,6 +3287,17 @@ _Strategy: Copy Elite Wallets (BES >1000)_"""
             logger.error(f"Early birds command failed: {e}", exc_info=True)
             await update.message.reply_text(f"⚠️ Insider detection not initialized yet or error: {str(e)}")
 
+
+    async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Natural conversation with unified AI"""
+        if update.message.text.startswith('/'):
+            return
+        
+        from bot.unified_ai import unified_ai
+        response = await unified_ai.chat(update.message.text)
+        await update.message.reply_text(response)
+
+
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle inline keyboard button presses."""
         query = update.callback_query
@@ -3635,3 +3647,4 @@ async def run_command_bot():
 
 if __name__ == "__main__":
     asyncio.run(run_command_bot())
+

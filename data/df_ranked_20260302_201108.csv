@@ -1,0 +1,2 @@
+wallet_address,source,roi_pct,median_roi_pct,profit_token_ratio,trade_frequency,roi_per_trade,x10_ratio,x20_ratio,x50_ratio,x100_ratio,median_hold_time,profit_per_hold_second,cluster,cluster_label,cluster_name,roi_final,priority_score,tier,strategy_bucket
+GmuooqwXLfH7oUSZ5eG4Lkv6SY4N6zNE5WjiwzbeVSjx,dex,188.94387045842603,82.4489720660634,1.0,72.0,2.624220423033695,0.0,0.0,0.0,0.0,247.0,0.764954941127231,1,cluster_1,Dormant/Legacy,188.94387045842603,0.24182791401516343,Elite,Dormant/Legacy - Elite

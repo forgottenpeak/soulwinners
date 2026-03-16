@@ -1,0 +1,2 @@
+wallet_address,source,roi_pct,median_roi_pct,profit_token_ratio,trade_frequency,roi_per_trade,x10_ratio,x20_ratio,x50_ratio,x100_ratio,median_hold_time,profit_per_hold_second,cluster,cluster_label,cluster_name,roi_final,priority_score,tier,strategy_bucket
+AgTM7bcPQo2kkru8o2igeiwbAjJY2bubEHHZUQPRhyqG,pumpfun,733.18663168538,,0.9411764705882353,46.0,15.938839819247391,0.0,0.03571428571428571,0.0,0.4642857142857143,,0.0,1,cluster_1,Core Alpha (Active),733.18663168538,0.8028571807225829,Elite,Core Alpha (Active) - Elite

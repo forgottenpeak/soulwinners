@@ -1,0 +1,2 @@
+wallet_address,source,roi_pct,median_roi_pct,profit_token_ratio,trade_frequency,roi_per_trade,x10_ratio,x20_ratio,x50_ratio,x100_ratio,median_hold_time,profit_per_hold_second,cluster,cluster_label,cluster_name,roi_final,priority_score,tier,strategy_bucket
+3F43GRim9pQLkP3iCCGVdDQwUqu2HFBJLf7Uj1d3hmht,dex,808.9427465994135,663.8102437028281,1.0,98.0,8.254517822442994,0.26,0.0,0.0,0.0,10,80.89427465994135,2,cluster_2,Moonshot Hunters,808.9427465994135,0.3593464202801355,Elite,Moonshot Hunters - Elite

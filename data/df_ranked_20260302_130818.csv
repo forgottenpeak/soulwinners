@@ -1,0 +1,2 @@
+wallet_address,source,roi_pct,median_roi_pct,profit_token_ratio,trade_frequency,roi_per_trade,x10_ratio,x20_ratio,x50_ratio,x100_ratio,median_hold_time,profit_per_hold_second,cluster,cluster_label,cluster_name,roi_final,priority_score,tier,strategy_bucket
+EvGpkcSBfhp5K9SNP48wVtfNXdKYRBiK3kvMkB66kU3Q,dex,72.01661958384113,147.9860662295232,1.0,33.0,2.1823218055709432,0.0,0.0,0.125,0.0,64,1.1252596809975177,1,cluster_1,Core Alpha (Active),72.01661958384113,0.24193739982949222,Elite,Core Alpha (Active) - Elite

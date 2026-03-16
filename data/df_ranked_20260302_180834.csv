@@ -1,0 +1,3 @@
+wallet_address,source,roi_pct,median_roi_pct,profit_token_ratio,trade_frequency,roi_per_trade,x10_ratio,x20_ratio,x50_ratio,x100_ratio,median_hold_time,profit_per_hold_second,cluster,cluster_label,cluster_name,roi_final,priority_score,tier,strategy_bucket
+6FYgn2apNXSqNVyXHTV8CFHiRQhw5TPdDUEHrBMyR8og,dex,1378.819935887982,53376.420244156456,1.0,82.0,16.814877266926608,0.0,0.0,0.0,0.015625,121.0,11.39520608171886,2,cluster_2,Moonshot Hunters,1378.819935887982,0.6529568603711062,Elite,Moonshot Hunters - Elite
+BK5bLTPmg3Ypo4SeGPjM79YhzugU2t6WH3EYazttcddQ,dex,728.4276711897177,24641.526508138548,1.0,33.0,22.073565793627807,0.0,0.0,0.0,0.1,1717.0,0.4242444211937785,2,cluster_2,Moonshot Hunters,728.4276711897177,0.518505474310353,Elite,Moonshot Hunters - Elite

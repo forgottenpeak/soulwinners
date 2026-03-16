@@ -1,0 +1,83 @@
+    async def cmd_ai_chat(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Pure AI conversation - NO keyword matching"""
+        message = update.message.text.strip()
+        
+        if not message:
+            return
+        
+        # Get current system data
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # Comprehensive system snapshot
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE created_at > datetime('now', '-24 hours')) as last_24h,
+                COUNT(*) FILTER (WHERE created_at > datetime('now', '-1 hour')) as last_1h,
+                COUNT(*) FILTER (WHERE social_score IS NOT NULL) as enriched,
+                COUNT(*) FILTER (WHERE buy_sol_amount >= 2) as buys_over_2sol
+            FROM position_lifecycle WHERE wallet_type != 'backlog'
+        """)
+        total, h24, h1, enriched, over2sol = cursor.fetchone()
+        
+        cursor.execute("SELECT COUNT(*) FROM wallet_global_pool WHERE importance_score > 5")
+        performing = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM wallet_exits")
+        exits = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        # Call pure GPT-4o-mini with NO keywords
+        import requests
+        import os
+        
+        system_context = f"""You are Edge Bot AI, monitoring SoulWinners - a Solana trading bot.
+
+LIVE SYSTEM DATA:
+- Total positions: {total}
+- Last 24h: {h24}
+- Last hour: {h1}
+- SAGEO enriched: {enriched} ({enriched/total*100 if total > 0 else 0:.1f}%)
+- Buys over 2 SOL: {over2sol}
+- Performing wallets (score >5): {performing}
+- Wallet exits tracked: {exits}
+
+You have access to:
+- Database queries (can check positions, wallets, alerts)
+- Log files (can investigate errors)
+- System processes (webhook, crons)
+
+Respond naturally and helpfully. If you need to check something specific in the database or logs, just say so and I'll help you access it."""
+
+        try:
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY', '')}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [
+                        {"role": "system", "content": system_context},
+                        {"role": "user", "content": message}
+                    ],
+                    "temperature": 0.7,
+                    "max_tokens": 500,
+                },
+                timeout=15
+            )
+            
+            result = response.json()
+            
+            if 'choices' in result:
+                ai_response = result['choices'][0]['message']['content']
+                await update.message.reply_text(ai_response, parse_mode=ParseMode.MARKDOWN)
+            else:
+                await update.message.reply_text(f"Error: {result.get('error', {}).get('message', 'Unknown error')}")
+                
+        except Exception as e:
+            await update.message.reply_text(f"AI error: {str(e)}")
+

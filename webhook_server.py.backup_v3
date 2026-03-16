@@ -1,0 +1,152 @@
+"""
+Helius Webhook Receiver - FINAL VERSION
+Receives real-time trade notifications from Helius
+"""
+from flask import Flask, request, jsonify
+import logging
+from datetime import datetime
+import sys
+import os
+
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from database import get_connection
+from bot.lifecycle_tracker import get_lifecycle_tracker
+from config.settings import TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID
+
+app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize lifecycle tracker
+lifecycle_tracker = get_lifecycle_tracker()
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint"""
+    return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
+
+@app.route('/webhook/helius', methods=['POST'])
+def helius_webhook():
+    """Receive trade notifications from Helius"""
+    try:
+        data = request.json
+        
+        # Helius sends array of transactions
+        if isinstance(data, list):
+            for tx in data:
+                process_transaction(tx)
+        else:
+            process_transaction(data)
+        
+        return jsonify({"status": "processed"}), 200
+        
+    except Exception as e:
+        logger.error(f"Webhook error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+def process_transaction(tx):
+    """Process a single transaction"""
+    try:
+        tx_type = tx.get('type')
+        
+        # Look for SWAP transactions
+        if tx_type == 'SWAP':
+            fee_payer = tx.get('feePayer')
+            token_transfers = tx.get('tokenTransfers', [])
+            native_transfers = tx.get('nativeTransfers', [])
+            
+            # Check if it's a SOL → Token swap (buy)
+            sol_amount = 0
+            token_address = None
+            
+            for transfer in native_transfers:
+                if transfer.get('fromUserAccount') == fee_payer:
+                    sol_amount += transfer.get('amount', 0) / 1e9
+                    
+            for transfer in token_transfers:
+                if transfer.get('toUserAccount') == fee_payer:
+                    token_address = transfer.get('mint')
+            
+            if sol_amount > 0 and token_address:
+                logger.info(f"💰 BUY: {fee_payer[:8]}... {sol_amount:.2f} SOL of {token_address[:8]}...")
+                
+                # CREATE LIFECYCLE POSITION if >= 0.8 SOL
+                if sol_amount >= 0.8:
+                    create_lifecycle_position(fee_payer, token_address, sol_amount, tx)
+        
+    except Exception as e:
+        logger.error(f"Error processing transaction: {e}", exc_info=True)
+
+def position_exists(wallet, token, sol_amount):
+    """Check if similar position exists (same wallet+token+similar amount)"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        current_time = int(datetime.now().timestamp())
+        
+        # Check for positions in last 24 hours
+        result = cursor.execute(
+            """SELECT id, buy_sol_amount FROM position_lifecycle 
+               WHERE wallet_address = ? 
+               AND token_address = ? 
+               AND created_at > ?
+               ORDER BY created_at DESC LIMIT 1""",
+            (wallet, token, current_time - 86400)
+        ).fetchone()
+        
+        if not result:
+            return False
+            
+        # Allow if SOL amount differs by >10% (legitimate re-buy)
+        last_amount = result[1]
+        diff_pct = abs(sol_amount - last_amount) / last_amount * 100
+        return diff_pct < 10  # Block if <10% difference
+        
+    except:
+        return False
+
+def create_lifecycle_position(wallet, token, sol_amount, tx):
+    """Create position_lifecycle entry with duplicate detection"""
+    try:
+        # Check for duplicates
+        if position_exists(wallet, token, sol_amount):
+            logger.info(f"⏭️  Duplicate: {wallet[:8]}...")
+            return
+        
+        # Get token data from DexScreener
+        import requests
+        resp = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{token}", timeout=5)
+        token_data = resp.json().get('pairs', [{}])[0] if resp.status_code == 200 else {}
+        
+        # Use current time (webhook delivers in real-time)
+        current_timestamp = int(datetime.now().timestamp())
+        
+        position_id = lifecycle_tracker.create_position(
+            wallet_address=wallet,
+            token_address=token,
+            token_symbol=token_data.get('baseToken', {}).get('symbol', 'UNKNOWN'),
+            buy_sol_amount=sol_amount,
+            entry_timestamp=current_timestamp,
+            entry_mc=token_data.get('fdv', 0),
+            entry_liquidity=token_data.get('liquidity', {}).get('usd', 0),
+        )
+        
+        logger.info(f"📊 Created lifecycle position #{position_id}")
+        
+    except Exception as e:
+        logger.error(f"Failed to create position: {e}")
+
+def is_buy_alerts_enabled():
+    """Check if buy alerts are enabled"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        result = cursor.execute("SELECT value FROM settings WHERE key = 'buy_alerts'").fetchone()
+        return result and result[0] == 'true'
+    except:
+        return False
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)

@@ -1,0 +1,2 @@
+wallet_address,source,roi_pct,median_roi_pct,profit_token_ratio,trade_frequency,roi_per_trade,x10_ratio,x20_ratio,x50_ratio,x100_ratio,median_hold_time,profit_per_hold_second,cluster,cluster_label,cluster_name,roi_final,priority_score,tier,strategy_bucket
+52kcFYiySu9c4i8rVmDT8pUCQp9S3ohvt7YG5L8emqMg,dex,2976.6654509730797,2429.5670322826763,1.0,35.0,85.04758431351657,0.0,0.3333333333333333,0.3333333333333333,0.0,11,270.6059500884618,4,cluster_4,Conviction Holders,2976.6654509730797,0.7677483202679238,Elite,Conviction Holders - Elite

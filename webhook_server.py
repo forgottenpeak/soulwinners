@@ -58,18 +58,18 @@ SKIP_TOKENS = {
 }
 
 # Cache for elite wallets
-_elite_wallets: Dict[str, Dict] = {}
+_qualified_wallets: Dict[str, Dict] = {}
 _wallets_loaded_at: float = 0
 WALLET_CACHE_TTL = 300  # Reload every 5 minutes
 
 
-def load_elite_wallets() -> Dict[str, Dict]:
+def load_qualified_wallets() -> Dict[str, Dict]:
     """Load elite wallets from database with caching."""
-    global _elite_wallets, _wallets_loaded_at
+    global _qualified_wallets, _wallets_loaded_at
 
     now = time.time()
-    if _elite_wallets and (now - _wallets_loaded_at) < WALLET_CACHE_TTL:
-        return _elite_wallets
+    if _qualified_wallets and (now - _wallets_loaded_at) < WALLET_CACHE_TTL:
+        return _qualified_wallets
 
     try:
         conn = get_connection()
@@ -77,56 +77,56 @@ def load_elite_wallets() -> Dict[str, Dict]:
 
         # Load qualified wallets (main elite pool)
         cursor.execute("""
-            SELECT wallet_address, tier, win_rate, avg_roi, total_trades
+            SELECT wallet_address, tier, win_rate, roi_final, total_trades
             FROM qualified_wallets
         """)
         qualified = cursor.fetchall()
 
         # Load insider wallets
         cursor.execute("""
-            SELECT wallet_address, pattern, confidence, win_rate, avg_roi
+            SELECT wallet_address, pattern, confidence, win_rate, roi_final
             FROM insider_pool
         """)
         insiders = cursor.fetchall()
 
         conn.close()
 
-        _elite_wallets = {}
+        _qualified_wallets = {}
 
         for row in qualified:
             wallet, tier, wr, roi, trades = row
-            _elite_wallets[wallet] = {
+            _qualified_wallets[wallet] = {
                 'type': 'qualified',
                 'tier': tier,
                 'win_rate': wr or 0,
-                'avg_roi': roi or 0,
+                'roi_final': roi or 0,
                 'total_trades': trades or 0,
             }
 
         for row in insiders:
             wallet, pattern, conf, wr, roi = row
-            if wallet not in _elite_wallets:  # Don't override qualified
-                _elite_wallets[wallet] = {
+            if wallet not in _qualified_wallets:  # Don't override qualified
+                _qualified_wallets[wallet] = {
                     'type': 'insider',
                     'tier': pattern,
                     'confidence': conf or 0,
                     'win_rate': wr or 0,
-                    'avg_roi': roi or 0,
+                    'roi_final': roi or 0,
                 }
 
         _wallets_loaded_at = now
-        logger.info(f"Loaded {len(_elite_wallets)} elite wallets")
+        logger.info(f"Loaded {len(_qualified_wallets)} elite wallets")
 
-        return _elite_wallets
+        return _qualified_wallets
 
     except Exception as e:
         logger.error(f"Error loading elite wallets: {e}")
-        return _elite_wallets  # Return cached if available
+        return _qualified_wallets  # Return cached if available
 
 
 def is_elite_wallet(wallet_address: str) -> Optional[Dict]:
     """Check if wallet is in elite pool."""
-    wallets = load_elite_wallets()
+    wallets = load_qualified_wallets()
     return wallets.get(wallet_address)
 
 
@@ -221,7 +221,7 @@ def parse_helius_swap(tx: Dict) -> Optional[Dict]:
         to_account = main_transfer.get('toUserAccount', '')
 
         # Determine wallet and direction
-        wallets = load_elite_wallets()
+        wallets = load_qualified_wallets()
         wallet_address = None
         tx_type = None
 
@@ -681,11 +681,11 @@ def helius_webhook():
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
-    wallets = load_elite_wallets()
+    wallets = load_qualified_wallets()
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'elite_wallets': len(wallets),
+        'qualified_wallets': len(wallets),
     })
 
 
@@ -733,7 +733,7 @@ def get_stats():
             'positions_today': positions_today,
             'exits_today': exits_today,
             'outcomes': outcomes,
-            'elite_wallets': len(load_elite_wallets()),
+            'qualified_wallets': len(load_qualified_wallets()),
         })
 
     except Exception as e:
@@ -751,7 +751,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Load wallets on startup
-    wallets = load_elite_wallets()
+    wallets = load_qualified_wallets()
     logger.info(f"Starting webhook server with {len(wallets)} elite wallets")
 
     app.run(host=args.host, port=args.port, debug=args.debug)

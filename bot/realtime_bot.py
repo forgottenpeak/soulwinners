@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 """
 Real-Time Monitoring Bot
 - Monitors BUY transactions for qualified wallets (public channel)

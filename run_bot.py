@@ -14,6 +14,7 @@ sys.path.insert(0, '.')
 
 from bot.realtime_bot import RealTimeBot
 from bot.commands import CommandBot
+from bot.ai_supervisor import start_ai_supervisor
 
 # Setup logging
 os.makedirs('logs', exist_ok=True)

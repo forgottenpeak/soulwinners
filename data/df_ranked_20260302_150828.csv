@@ -1,0 +1,2 @@
+wallet_address,source,roi_pct,median_roi_pct,profit_token_ratio,trade_frequency,roi_per_trade,x10_ratio,x20_ratio,x50_ratio,x100_ratio,median_hold_time,profit_per_hold_second,cluster,cluster_label,cluster_name,roi_final,priority_score,tier,strategy_bucket
+kSCTcTGbeGozrHkvZmmhq7NVRJbAhsQ9BWeroB987WY,dex,11246.744365488626,9352.17401741243,1.0,68.0,165.3932994924798,0.0,0.15789473684210525,0.21052631578947367,0.3157894736842105,1418,7.931413515859398,3,cluster_3,Low-frequency Snipers,11246.744365488626,0.7816502898421096,Elite,Low-frequency Snipers - Elite

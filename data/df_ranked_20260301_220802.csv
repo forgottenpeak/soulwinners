@@ -1,0 +1,3 @@
+wallet_address,source,roi_pct,median_roi_pct,profit_token_ratio,trade_frequency,roi_per_trade,x10_ratio,x20_ratio,x50_ratio,x100_ratio,median_hold_time,profit_per_hold_second,cluster,cluster_label,cluster_name,roi_final,priority_score,tier,strategy_bucket
+9C39WjAZYZ8tu6MiGXNFzDWg2wFp1gctvzu2bvoQ6g2h,dex,76.24383586904085,115.97630281812785,1.0,9.0,4.235768659391159,0.0,0.0,0.0,0.0,0,0.0,2,cluster_2,Dormant/Legacy,76.24383586904085,0.2246785683389546,Elite,Dormant/Legacy - Elite
+BvEk7BYtwqj6bAQE6huh431kd17cC1szREXyHg3Gr1Dp,dex,109.15946515702399,8741.930281711378,0.6666666666666666,27.0,4.042943153963852,0.0,0.0,0.125,0.0,4451,0.02452470571939429,2,cluster_2,Dormant/Legacy,109.15946515702399,0.20015756276244387,High-Quality,Dormant/Legacy - High-Quality

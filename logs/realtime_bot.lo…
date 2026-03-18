@@ -1,0 +1,46 @@
+INFO:__main__:✅ Lifecycle tracker initialized
+INFO:__main__:Loaded 205 wallet tiers
+INFO:__main__:Loaded 1 watchlist wallets for 1 user subscriptions
+INFO:__main__:Loaded 450 insider wallets for monitoring
+INFO:__main__:Loaded 35 milestone records from database
+INFO:__main__:Loaded 205 qualified wallets
+INFO:__main__:Loaded 1 watchlist wallets
+INFO:__main__:Loaded 450 insider wallets
+INFO:__main__:Starting real-time monitor
+INFO:__main__:  Qualified wallets: 205
+INFO:__main__:  Insider wallets: 450
+INFO:__main__:  Watchlist wallets: 1
+INFO:__main__:  Min buy (qualified): 1.5 SOL
+INFO:__main__:  Min buy (watchlist): 1.5 SOL
+INFO:__main__:  Max tx age: 5 minutes
+INFO:__main__:  Poll interval: 30 seconds
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8483614914:AAFjwtH2pct_OdZgi4zrcPNKq6zWdb62ypQ/sendMessage "HTTP/1.1 200 OK"
+INFO:__main__:📡 Poll cycle skipped - buy_alerts DISABLED
+INFO:__main__:📡 Poll cycle skipped - buy_alerts DISABLED
+Traceback (most recent call last):
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/root/Soulwinners/bot/realtime_bot.py", line 2052, in main
+    await bot.start()
+  File "/root/Soulwinners/bot/realtime_bot.py", line 677, in start
+    await asyncio.sleep(POLL_INTERVAL)
+  File "/usr/lib/python3.12/asyncio/tasks.py", line 665, in sleep
+    return await future
+           ^^^^^^^^^^^^
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/root/Soulwinners/bot/realtime_bot.py", line 2058, in <module>
+    asyncio.run(main())
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 123, in run
+    raise KeyboardInterrupt()
+KeyboardInterrupt

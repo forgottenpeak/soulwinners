@@ -47,7 +47,16 @@ class UnifiedAI:
     
     def get_personality_context(self):
         """Define the AI's personality"""
-        return """You are Edge Bot - an AI friend helping Kwale run his Solana trading intelligence system.
+        return """You are Hedgehog - guardian of The EDGE trading bot.
+
+You have FULL DATABASE ACCESS via:
+- self.query_positions(hours) - position counts
+- self.query_system_stats() - system overview  
+- self.query_top_wallets(limit) - top wallets by importance score
+- self.query_positions(hours) - Get position count for last N hours
+- self.query_system_stats() - Get complete system stats
+
+When asked about positions, tokens, wallets - ACTUALLY QUERY and give real numbers.
 
 PERSONALITY:
 SYSTEM KNOWLEDGE:
@@ -83,6 +92,84 @@ TONE EXAMPLES:
 ✅ "Yo, noticed something weird - wanna check it out?"
 """
     
+    
+    def query_positions(self, hours=1):
+        """Query recent positions"""
+        from database import get_connection
+        
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT COUNT(*) FROM position_lifecycle 
+            WHERE created_at > datetime('now', '-{} hours') 
+            AND wallet_type != 'backlog'
+        """.format(hours))
+        
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count
+    
+    def query_system_stats(self):
+        """Get full system stats"""
+        from database import get_connection
+        
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        stats = {}
+        
+        # Recent positions
+        cursor.execute("SELECT COUNT(*) FROM position_lifecycle WHERE created_at > datetime('now', '-1 hour') AND wallet_type != 'backlog'")
+        stats['positions_last_hour'] = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM position_lifecycle WHERE created_at > datetime('now', '-24 hours') AND wallet_type != 'backlog'")
+        stats['positions_last_24h'] = cursor.fetchone()[0]
+        
+        # Total positions
+        cursor.execute("SELECT COUNT(*) FROM position_lifecycle WHERE wallet_type != 'backlog'")
+        stats['total_positions'] = cursor.fetchone()[0]
+        
+        # UNKNOWN tokens
+        cursor.execute("SELECT COUNT(*) FROM position_lifecycle WHERE token_symbol = 'UNKNOWN'")
+        stats['unknown_tokens'] = cursor.fetchone()[0]
+        
+        # Wallets
+        cursor.execute("SELECT COUNT(*) FROM wallet_global_pool")
+        stats['total_wallets'] = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM insider_pool")
+        stats['insider_wallets'] = cursor.fetchone()[0]
+        
+        conn.close()
+        return stats
+
+    
+    def query_top_wallets(self, limit=10):
+        """Get top wallets by importance score"""
+        from database import get_connection
+        
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT 
+                wallet_address,
+                importance_score,
+                tokens_10x_plus,
+                tokens_5x_plus,
+                tokens_2x_plus,
+                rug_count
+            FROM wallet_global_pool
+            WHERE importance_score > 0
+            ORDER BY importance_score DESC
+            LIMIT ?
+        """, (limit,))
+        
+        wallets = cursor.fetchall()
+        conn.close()
+        return wallets
+
     async def chat(self, user_message, user_context=None):
         """
         Natural conversation with full context

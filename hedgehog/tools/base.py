@@ -210,6 +210,14 @@ class Tool(ABC):
             "input_schema": self.parameters_schema,
         }
 
+    def to_openai_schema(self) -> Dict[str, Any]:
+        """Get tool schema for OpenAI API."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.parameters_schema,
+        }
+
 
 class ToolRegistry:
     """

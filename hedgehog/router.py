@@ -344,6 +344,7 @@ class AIRouter:
             kwargs["tools"] = [
                 {"type": "function", "function": t} for t in tools
             ]
+            kwargs["tool_choice"] = "auto"
 
         response = self._openai_client.chat.completions.create(**kwargs)
 

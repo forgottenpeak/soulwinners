@@ -902,12 +902,16 @@ _Or just ask me in natural language!_
             tools=", ".join(t.name for t in self.tools.get_all())
         )
 
+        # Get tool schemas for AI to use
+        tool_schemas = [t.to_openai_schema() for t in self.tools.get_all()]
+
         try:
             response, metadata = await self.router.call(
                 task_type=task_type,
                 system_prompt=system_prompt,
                 user_prompt=question,
                 context=context,
+                tools=tool_schemas,
             )
 
             # Log AI call

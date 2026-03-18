@@ -1,0 +1,10 @@
+# API keys and secrets
+*.env
+.env.*
+memory/conversation.json
+memory/action_log.json
+memory/trade_history.json
+*.log
+
+# Test data
+test_data/

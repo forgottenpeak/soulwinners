@@ -1,0 +1,66 @@
+[
+  {
+    "timestamp": "2026-03-18T18:33:43.136733",
+    "overall_status": "degraded",
+    "issues_found": 2,
+    "checks": {
+      "services": [
+        {
+          "service": "soulwinners-webhook",
+          "status": "unknown",
+          "error": "[Errno 2] No such file or directory: 'systemctl'"
+        },
+        {
+          "service": "soulwinners-scanner",
+          "status": "unknown",
+          "error": "[Errno 2] No such file or directory: 'systemctl'"
+        },
+        {
+          "service": "hedgehog-telegram",
+          "status": "unknown",
+          "error": "[Errno 2] No such file or directory: 'systemctl'"
+        },
+        {
+          "service": "postgresql",
+          "status": "unknown",
+          "error": "[Errno 2] No such file or directory: 'systemctl'"
+        },
+        {
+          "service": "nginx",
+          "status": "unknown",
+          "error": "[Errno 2] No such file or directory: 'systemctl'"
+        }
+      ],
+      "database": {
+        "status": "not_found",
+        "path": "/root/Soulwinners/soulwinners.db"
+      },
+      "api_keys": {
+        "configured": {
+          "HELIUS_API_KEY": false,
+          "OPENAI_API_KEY": true,
+          "TELEGRAM_BOT_TOKEN": false
+        },
+        "missing": [
+          "HELIUS_API_KEY",
+          "TELEGRAM_BOT_TOKEN"
+        ]
+      },
+      "disk_space": {
+        "usage_percent": 4,
+        "status": "ok"
+      },
+      "memory": {
+        "error": "[Errno 2] No such file or directory: 'free'"
+      },
+      "recent_errors": {
+        "count_last_100_lines": 0,
+        "status": "ok"
+      }
+    },
+    "issues": [
+      "Database file not found",
+      "Missing API keys: HELIUS_API_KEY, TELEGRAM_BOT_TOKEN"
+    ]
+  }
+]

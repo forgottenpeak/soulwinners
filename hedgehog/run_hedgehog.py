@@ -3,6 +3,9 @@
 Hedgehog Runner - Full Autonomous AI Brain
 
 Usage:
+    # FIRST TIME: Initialize knowledge base (REQUIRED)
+    python -m hedgehog init
+
     # Run Telegram bot with proactive monitoring (main mode)
     python -m hedgehog bot
 
@@ -26,6 +29,9 @@ Usage:
 
     # Show status
     python -m hedgehog status
+
+    # Refresh knowledge base
+    python -m hedgehog refresh
 """
 import argparse
 import asyncio
@@ -40,6 +46,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from hedgehog import HedgehogBrain, get_brain, get_router
 from hedgehog.config import get_config
+from hedgehog.knowledge import initialize_knowledge, get_kb, KnowledgeUpdater, get_scanner
 
 # Setup logging
 log_path = Path(__file__).parent.parent / "logs" / "hedgehog.log"
@@ -60,10 +67,10 @@ def print_banner():
     """Print startup banner."""
     print("""
     ╔═══════════════════════════════════════════╗
-    ║  🦔 HEDGEHOG AI BRAIN v3.0                ║
+    ║  🦔 HEDGEHOG AI BRAIN v4.0                ║
     ║  ─────────────────────────────────────    ║
-    ║  AUTONOMOUS SYSTEM OPERATOR               ║
-    ║  Schema-aware • Self-healing • Proactive  ║
+    ║  THE BRAIN OF SOULWINNERS                 ║
+    ║  Knows EVERYTHING • Instant Answers       ║
     ╚═══════════════════════════════════════════╝
     """)
 
@@ -292,6 +299,19 @@ async def run_status():
     status = brain.get_status()
     usage = router.get_usage_summary()
 
+    # Get knowledge base status
+    try:
+        kb = get_kb()
+        kb_summary = kb.get_scan_summary()
+        kb_status = f"""
+Knowledge Base:
+  Tables: {kb_summary.get('tables', 'N/A')}
+  Files: {kb_summary.get('files', 'N/A')}
+  Age: {kb_summary.get('age_minutes', 'N/A'):.1f} min
+  Last Scan: {kb_summary.get('scan_time', 'Never')[:19]}"""
+    except:
+        kb_status = "\nKnowledge Base: NOT INITIALIZED (run: python -m hedgehog init)"
+
     print(f"""
 🦔 Hedgehog Status
 ==================
@@ -308,17 +328,76 @@ AI Usage Today:
 Memory:
   Decisions: {status['memory'].get('total_decisions', 0)}
   Errors: {status['memory'].get('total_errors', 0)}
+{kb_status}
+""")
+
+
+def run_init():
+    """Initialize the knowledge base - Hedgehog learns the house."""
+    print("""
+    ╔═══════════════════════════════════════════╗
+    ║  INITIALIZING HEDGEHOG KNOWLEDGE BASE     ║
+    ║  ─────────────────────────────────────    ║
+    ║  Scanning the entire SoulWinners system   ║
+    ║  Hedgehog is learning the house...        ║
+    ╚═══════════════════════════════════════════╝
+    """)
+
+    result = initialize_knowledge(start_updater=False)
+
+    print("\n" + "=" * 60)
+    print("KNOWLEDGE BASE INITIALIZED")
+    print("=" * 60)
+    print(f"""
+Scan Time: {result.get('scan_time', 'N/A')[:19]}
+Duration: {result.get('scan_duration', 'N/A')}s
+
+Databases: {result.get('databases', 0)}
+Tables: {result.get('tables', 0)}
+Python Files: {result.get('python_files', 0)}
+Services: {result.get('services', 0)}
+
+Wallet Counts:
+""")
+    for k, v in result.get('wallet_counts', {}).items():
+        print(f"  {k}: {v}")
+
+    print("\nPosition Counts:")
+    for k, v in result.get('position_counts', {}).items():
+        print(f"  {k}: {v}")
+
+    print("""
+Hedgehog now KNOWS the system.
+Run 'python -m hedgehog bot' to start with knowledge-aware responses.
+""")
+
+
+def run_refresh():
+    """Refresh the knowledge base."""
+    print("Refreshing knowledge base...")
+
+    scanner = get_scanner()
+    scanner.scan_all()
+
+    kb = get_kb()
+    summary = kb.get_scan_summary()
+
+    print(f"""
+Knowledge Base Refreshed!
+  Tables: {summary.get('tables', 'N/A')}
+  Files: {summary.get('files', 'N/A')}
+  Duration: {summary.get('duration_seconds', 'N/A')}s
 """)
 
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="Hedgehog AI Brain")
+    parser = argparse.ArgumentParser(description="Hedgehog AI Brain - The TRUE Brain of SoulWinners")
     parser.add_argument(
         "mode",
         nargs="?",
         default="status",
-        choices=["bot", "monitor", "process", "health", "report", "interactive", "command", "status"],
+        choices=["init", "refresh", "bot", "monitor", "process", "health", "report", "interactive", "command", "status"],
         help="Mode to run"
     )
     parser.add_argument(
@@ -339,14 +418,38 @@ def main():
 
     print_banner()
 
+    # Init and refresh don't need full config
+    if args.mode == "init":
+        run_init()
+        return
+
+    if args.mode == "refresh":
+        run_refresh()
+        return
+
     config = get_config()
     print(f"Mode: {args.mode}")
     print(f"Primary Model: {config.primary_model.model}")
     print(f"Secondary Model: {config.secondary_model.model}")
+
+    # Check if knowledge base is initialized
+    try:
+        kb = get_kb()
+        age = kb.get_knowledge_age()
+        if age < 60:
+            print(f"Knowledge Base: Active (age: {age:.1f} min)")
+        else:
+            print(f"Knowledge Base: Stale (age: {age:.1f} min) - consider running 'python -m hedgehog refresh'")
+    except Exception as e:
+        print(f"Knowledge Base: NOT INITIALIZED - run 'python -m hedgehog init' first")
+
     print()
 
     # Run appropriate mode
     if args.mode == "bot":
+        # Start knowledge updater in background when running bot
+        updater = KnowledgeUpdater(get_scanner(), interval_minutes=5)
+        updater.start()
         asyncio.run(run_telegram_bot())
 
     elif args.mode == "monitor":

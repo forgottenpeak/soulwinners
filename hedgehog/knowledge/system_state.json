@@ -1,0 +1,6726 @@
+{
+  "scan_time": "2026-03-18T13:40:57.269074",
+  "scan_duration_seconds": 1.86,
+  "databases": {
+    "main": {
+      "wallet_performance": {
+        "name": "wallet_performance",
+        "columns": [
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "source",
+            "type": "TEXT",
+            "nullable": true,
+            "default": "'pumpfun'",
+            "primary_key": false
+          },
+          {
+            "name": "rank",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "last_tx",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "total_profit_usd",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "unique_tokens_traded",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "tokens_net_profit",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "buy_transactions",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "sell_transactions",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "current_balance_sol",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "total_sol_spent",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "total_sol_earned",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "realized_pnl",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "unrealized_pnl",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "win_rate",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "tokens_less_10x",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "tokens_10x_plus",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "tokens_20x_plus",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "tokens_50x_plus",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "tokens_100x_plus",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "updated_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "sqlite_autoindex_wallet_performance_1"
+        ]
+      },
+      "wallet_details": {
+        "name": "wallet_details",
+        "columns": [
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "source",
+            "type": "TEXT",
+            "nullable": true,
+            "default": "'dex'",
+            "primary_key": false
+          },
+          {
+            "name": "days_since_first_trade",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "pnl_sol",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "roi_percent",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "median_roi_percent",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "median_hold_time_seconds",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "median_first_buy_to_sell_seconds",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "unique_tokens_traded",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "tokens_net_profit",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "buy_transactions",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "sell_transactions",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "current_balance_sol",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "total_sol_spent",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "total_sol_earned",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "win_rate",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "tokens_less_10x",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "tokens_10x_plus",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "tokens_20x_plus",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "tokens_50x_plus",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "tokens_100x_plus",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "updated_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "sqlite_autoindex_wallet_details_1"
+        ]
+      },
+      "wallet_metrics": {
+        "name": "wallet_metrics",
+        "columns": [
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "source",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "current_balance_sol",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "total_trades",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "buy_transactions",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "sell_transactions",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "unique_tokens_traded",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "roi_pct",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "median_roi_pct",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "profit_token_ratio",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "trade_frequency",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "roi_per_trade",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "x10_ratio",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "x20_ratio",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "x50_ratio",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "x100_ratio",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "median_hold_time",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "profit_per_hold_second",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "cluster",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "cluster_label",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "cluster_name",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "roi_final",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "priority_score",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "tier",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "strategy_bucket",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "updated_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 1082,
+        "sample_data": [
+          {
+            "wallet_address": "XY2joC2DwF2HH1UAVUegiKYDPXLcgvXwTPZfxQRWn3k",
+            "source": "pumpfun",
+            "current_balance_sol": 119.026314703,
+            "total_trades": 16,
+            "buy_transactions": 3,
+            "sell_transactions": 13,
+            "unique_tokens_traded": 28,
+            "roi_pct": 124737.46407500442,
+            "median_roi_pct": 124737.46407500442,
+            "profit_token_ratio": 1.0,
+            "trade_frequency": 16.0,
+            "roi_per_trade": 7796.091504687776,
+            "x10_ratio": 0.0,
+            "x20_ratio": 0.0,
+            "x50_ratio": 0.0,
+            "x100_ratio": 0.03571428571428571,
+            "median_hold_time": 0.0,
+            "profit_per_hold_second": 0.0,
+            "cluster": 3,
+            "cluster_label": "cluster_3",
+            "cluster_name": "Core Alpha (Active)",
+            "roi_final": 124737.46407500442,
+            "priority_score": 0.6566015693112468,
+            "tier": "Elite",
+            "strategy_bucket": "Core Alpha (Active) - Elite",
+            "created_at": "2026-02-24 11:36:52",
+            "updated_at": "2026-02-24T12:36:52.074150"
+          },
+          {
+            "wallet_address": "3CvGrHWNyRaaHu5GvvGfZEzTTfuCPxrnbhhZxUJGVayA",
+            "source": "pumpfun",
+            "current_balance_sol": 22.697742109,
+            "total_trades": 88,
+            "buy_transactions": 46,
+            "sell_transactions": 42,
+            "unique_tokens_traded": 26,
+            "roi_pct": 82224.58333459088,
+            "median_roi_pct": 82224.58333459088,
+            "profit_token_ratio": 1.0,
+            "trade_frequency": 88.0,
+            "roi_per_trade": 934.3702651658054,
+            "x10_ratio": 0.0,
+            "x20_ratio": 0.0,
+            "x50_ratio": 0.0,
+            "x100_ratio": 0.2692307692307692,
+            "median_hold_time": 0.0,
+            "profit_per_hold_second": 0.0,
+            "cluster": 0,
+            "cluster_label": "cluster_0",
+            "cluster_name": "Dormant/Legacy",
+            "roi_final": 82224.58333459088,
+            "priority_score": 0.4274187983188585,
+            "tier": "Elite",
+            "strategy_bucket": "Dormant/Legacy - Elite",
+            "created_at": "2026-02-24 11:36:52",
+            "updated_at": "2026-02-24T12:36:52.075288"
+          },
+          {
+            "wallet_address": "4pkCyvj7KjpyYtHCgaxN4dbeyeNa67dtp1JncauU4MFh",
+            "source": "pumpfun",
+            "current_balance_sol": 2.111023436,
+            "total_trades": 92,
+            "buy_transactions": 46,
+            "sell_transactions": 46,
+            "unique_tokens_traded": 50,
+            "roi_pct": 33906.888659713964,
+            "median_roi_pct": 33906.888659713964,
+            "profit_token_ratio": 1.0,
+            "trade_frequency": 92.0,
+            "roi_per_trade": 368.5531376055866,
+            "x10_ratio": 0.02,
+            "x20_ratio": 0.0,
+            "x50_ratio": 0.0,
+            "x100_ratio": 0.0,
+            "median_hold_time": 0.0,
+            "profit_per_hold_second": 0.0,
+            "cluster": 0,
+            "cluster_label": "cluster_0",
+            "cluster_name": "Dormant/Legacy",
+            "roi_final": 33906.888659713964,
+            "priority_score": 0.3259790247029739,
+            "tier": "Elite",
+            "strategy_bucket": "Dormant/Legacy - Elite",
+            "created_at": "2026-02-24 11:36:52",
+            "updated_at": "2026-02-24T12:36:52.075754"
+          }
+        ],
+        "indexes": [
+          "idx_wallet_metrics_priority",
+          "idx_wallet_metrics_tier",
+          "sqlite_autoindex_wallet_metrics_1"
+        ]
+      },
+      "qualified_wallets": {
+        "name": "qualified_wallets",
+        "columns": [
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "source",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "roi_pct",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "median_roi_pct",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "profit_token_ratio",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "trade_frequency",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "roi_per_trade",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "x10_ratio",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "x20_ratio",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "x50_ratio",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "x100_ratio",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "median_hold_time",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "profit_per_hold_second",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "cluster",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "cluster_label",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "cluster_name",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "roi_final",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "priority_score",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "tier",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "strategy_bucket",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "current_balance_sol",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "total_trades",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "win_rate",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "qualified_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "last_alert_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          }
+        ],
+        "row_count": 23,
+        "sample_data": [
+          {
+            "wallet_address": "XY2joC2DwF2HH1UAVUegiKYDPXLcgvXwTPZfxQRWn3k",
+            "source": "pumpfun",
+            "roi_pct": 124737.46407500442,
+            "median_roi_pct": 124737.46407500442,
+            "profit_token_ratio": 1.0,
+            "trade_frequency": 16.0,
+            "roi_per_trade": 7796.091504687776,
+            "x10_ratio": 0.0,
+            "x20_ratio": 0.0,
+            "x50_ratio": 0.0,
+            "x100_ratio": 0.03571428571428571,
+            "median_hold_time": 0.0,
+            "profit_per_hold_second": 0.0,
+            "cluster": 3,
+            "cluster_label": "cluster_3",
+            "cluster_name": "Core Alpha (Active)",
+            "roi_final": 124737.46407500442,
+            "priority_score": 0.6566015693112468,
+            "tier": "Elite",
+            "strategy_bucket": "Core Alpha (Active) - Elite",
+            "current_balance_sol": 119.026314703,
+            "total_trades": 16,
+            "win_rate": 1.0,
+            "qualified_at": "2026-02-24 18:43:38",
+            "last_alert_at": null
+          },
+          {
+            "wallet_address": "3CvGrHWNyRaaHu5GvvGfZEzTTfuCPxrnbhhZxUJGVayA",
+            "source": "pumpfun",
+            "roi_pct": 82224.58333459088,
+            "median_roi_pct": 82224.58333459088,
+            "profit_token_ratio": 1.0,
+            "trade_frequency": 88.0,
+            "roi_per_trade": 934.3702651658054,
+            "x10_ratio": 0.0,
+            "x20_ratio": 0.0,
+            "x50_ratio": 0.0,
+            "x100_ratio": 0.2692307692307692,
+            "median_hold_time": 0.0,
+            "profit_per_hold_second": 0.0,
+            "cluster": 0,
+            "cluster_label": "cluster_0",
+            "cluster_name": "Dormant/Legacy",
+            "roi_final": 82224.58333459088,
+            "priority_score": 0.4274187983188585,
+            "tier": "Elite",
+            "strategy_bucket": "Dormant/Legacy - Elite",
+            "current_balance_sol": 22.697742109,
+            "total_trades": 88,
+            "win_rate": 1.0,
+            "qualified_at": "2026-02-24 18:43:38",
+            "last_alert_at": null
+          },
+          {
+            "wallet_address": "CgXBBVgRqa5QCEdkBGdBFgc8joQqeBhmHHYWKkvcad3Y",
+            "source": "pumpfun",
+            "roi_pct": 149.20307348344707,
+            "median_roi_pct": 149.20307348344707,
+            "profit_token_ratio": 1.0,
+            "trade_frequency": 75.0,
+            "roi_per_trade": 1.9893743131126276,
+            "x10_ratio": 0.0,
+            "x20_ratio": 0.36,
+            "x50_ratio": 0.12,
+            "x100_ratio": 0.0,
+            "median_hold_time": 0.0,
+            "profit_per_hold_second": 0.0,
+            "cluster": 0,
+            "cluster_label": "cluster_0",
+            "cluster_name": "Dormant/Legacy",
+            "roi_final": 149.20307348344707,
+            "priority_score": 0.2917324443246816,
+            "tier": "Elite",
+            "strategy_bucket": "Dormant/Legacy - Elite",
+            "current_balance_sol": 13.003383196,
+            "total_trades": 75,
+            "win_rate": 1.0,
+            "qualified_at": "2026-02-24 18:43:38",
+            "last_alert_at": null
+          }
+        ],
+        "indexes": [
+          "idx_qualified_priority",
+          "idx_qualified_tier",
+          "sqlite_autoindex_qualified_wallets_1"
+        ]
+      },
+      "transactions": {
+        "name": "transactions",
+        "columns": [
+          {
+            "name": "signature",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_symbol",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "tx_type",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "amount_sol",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "amount_tokens",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "price_per_token",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "timestamp",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "pnl_sol",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "pnl_percent",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "dex",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_transactions_timestamp",
+          "idx_transactions_wallet",
+          "sqlite_autoindex_transactions_1"
+        ]
+      },
+      "alerts": {
+        "name": "alerts",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_symbol",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_name",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_image_url",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "tx_signature",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "alert_type",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "tier",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "strategy",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "message_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "sent_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 220,
+        "sample_data": [
+          {
+            "id": 1,
+            "wallet_address": "3CvGrHWNyRaaHu5GvvGfZEzTTfuCPxrnbhhZxUJGVayA",
+            "token_address": "79dGFnR8XUusyDiK3n8yZ6FXhJjWLFgzdsi2SkUpump",
+            "token_symbol": "LIA",
+            "token_name": null,
+            "token_image_url": null,
+            "tx_signature": null,
+            "alert_type": "buy",
+            "tier": null,
+            "strategy": null,
+            "message_id": null,
+            "sent_at": "2026-02-24T13:05:06.553622"
+          },
+          {
+            "id": 2,
+            "wallet_address": "3CvGrHWNyRaaHu5GvvGfZEzTTfuCPxrnbhhZxUJGVayA",
+            "token_address": "79dGFnR8XUusyDiK3n8yZ6FXhJjWLFgzdsi2SkUpump",
+            "token_symbol": "LIA",
+            "token_name": null,
+            "token_image_url": null,
+            "tx_signature": null,
+            "alert_type": "buy",
+            "tier": null,
+            "strategy": null,
+            "message_id": null,
+            "sent_at": "2026-02-24T13:05:09.488088"
+          },
+          {
+            "id": 3,
+            "wallet_address": "XY2joC2DwF2HH1UAVUegiKYDPXLcgvXwTPZfxQRWn3k",
+            "token_address": "F5tfztTnE4sYsMhZT5KrFpWvHmYSfJZoRjCuxKPbpump",
+            "token_symbol": "Aliens",
+            "token_name": null,
+            "token_image_url": null,
+            "tx_signature": null,
+            "alert_type": "buy",
+            "tier": null,
+            "strategy": null,
+            "message_id": null,
+            "sent_at": "2026-02-24T13:05:16.503104"
+          }
+        ],
+        "indexes": [
+          "idx_alerts_sent",
+          "idx_alerts_wallet"
+        ]
+      },
+      "pipeline_runs": {
+        "name": "pipeline_runs",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "started_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "completed_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wallets_collected",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wallets_qualified",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wallets_added",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wallets_removed",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "error_message",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          }
+        ],
+        "row_count": 5,
+        "sample_data": [
+          {
+            "id": 1,
+            "started_at": "2026-02-24T01:32:59.211080",
+            "completed_at": "2026-02-24T01:52:44.848039",
+            "status": "completed",
+            "wallets_collected": 260,
+            "wallets_qualified": 0,
+            "wallets_added": 0,
+            "wallets_removed": 0,
+            "error_message": null
+          },
+          {
+            "id": 2,
+            "started_at": "2026-02-24T09:14:55.849564",
+            "completed_at": "2026-02-24T09:58:24.630143",
+            "status": "completed",
+            "wallets_collected": 656,
+            "wallets_qualified": 0,
+            "wallets_added": 0,
+            "wallets_removed": 0,
+            "error_message": null
+          },
+          {
+            "id": 3,
+            "started_at": "2026-02-24T10:20:14.709872",
+            "completed_at": "2026-02-24T13:19:09.610767",
+            "status": "completed",
+            "wallets_collected": 747,
+            "wallets_qualified": 9,
+            "wallets_added": 9,
+            "wallets_removed": 5,
+            "error_message": null
+          }
+        ],
+        "indexes": []
+      },
+      "user_watchlists": {
+        "name": "user_watchlists",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "added_date",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "win_rate",
+            "type": "REAL",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "roi",
+            "type": "REAL",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "total_trades",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "last_updated",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "notes",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_watchlist_user",
+          "sqlite_autoindex_user_watchlists_1"
+        ]
+      },
+      "insider_pool": {
+        "name": "insider_pool",
+        "columns": [
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "pattern",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "signals",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "win_rate",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "avg_roi",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "cluster_id",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "cluster_label",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "discovered_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "last_updated",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "promoted_to_main",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "sqlite_autoindex_insider_pool_1"
+        ]
+      },
+      "wallet_cleanup_log": {
+        "name": "wallet_cleanup_log",
+        "columns": [
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "removed_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "reason",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "roi_at_removal",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "win_rate_at_removal",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "sqlite_autoindex_wallet_cleanup_log_1"
+        ]
+      },
+      "settings": {
+        "name": "settings",
+        "columns": [
+          {
+            "name": "key",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "value",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "updated_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 33,
+        "sample_data": [
+          {
+            "key": "min_buy_amount",
+            "value": "1.0",
+            "updated_at": "2026-03-07 10:59:53"
+          },
+          {
+            "key": "alert_age_limit_min",
+            "value": "5",
+            "updated_at": "2026-03-07 10:59:53"
+          },
+          {
+            "key": "last_5_win_rate",
+            "value": "0.6",
+            "updated_at": "2026-03-07 10:59:53"
+          }
+        ],
+        "indexes": [
+          "sqlite_autoindex_settings_1"
+        ]
+      },
+      "user_wallets": {
+        "name": "user_wallets",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "deposit_address",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "encrypted_private_key",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "balance_sol",
+            "type": "REAL",
+            "nullable": true,
+            "default": "0.0",
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "last_updated",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_user_wallets_address",
+          "idx_user_wallets_user",
+          "sqlite_autoindex_user_wallets_1"
+        ]
+      },
+      "fee_history": {
+        "name": "fee_history",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "trade_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "fee_amount_sol",
+            "type": "REAL",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "collected_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "tx_signature",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "nullable": true,
+            "default": "'collected'",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_fee_history_status",
+          "idx_fee_history_user"
+        ]
+      },
+      "fee_transfers": {
+        "name": "fee_transfers",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "total_amount_sol",
+            "type": "REAL",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "tx_signature",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "transferred_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "nullable": true,
+            "default": "'pending'",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": []
+      },
+      "ai_reports": {
+        "name": "ai_reports",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "report_text",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "suggestions_json",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "trade_stats_json",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_ai_reports_created",
+          "idx_ai_reports_user"
+        ]
+      },
+      "user_strategies": {
+        "name": "user_strategies",
+        "columns": [
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "buy_amount_sol",
+            "type": "REAL",
+            "nullable": true,
+            "default": "0.5",
+            "primary_key": false
+          },
+          {
+            "name": "take_profit_pct",
+            "type": "REAL",
+            "nullable": true,
+            "default": "50.0",
+            "primary_key": false
+          },
+          {
+            "name": "stop_loss_pct",
+            "type": "REAL",
+            "nullable": true,
+            "default": "10.0",
+            "primary_key": false
+          },
+          {
+            "name": "max_trades_day",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "20",
+            "primary_key": false
+          },
+          {
+            "name": "auto_trade_enabled",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "updated_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_user_strategies_user"
+        ]
+      },
+      "copy_pool": {
+        "name": "copy_pool",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "enabled",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "1",
+            "primary_key": false
+          },
+          {
+            "name": "added_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_copy_pool_user",
+          "sqlite_autoindex_copy_pool_1"
+        ]
+      },
+      "authorized_users": {
+        "name": "authorized_users",
+        "columns": [
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "authorized_by",
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "authorized_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "nullable": true,
+            "default": "'active'",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": []
+      },
+      "wallet_performance_history": {
+        "name": "wallet_performance_history",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "win_rate",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "total_trades",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wins",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "losses",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "checked_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_perf_history_user",
+          "idx_perf_history_wallet"
+        ]
+      },
+      "win_milestones": {
+        "name": "win_milestones",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "token_address",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "entry_mcap",
+            "type": "REAL",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "milestone_x",
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "current_mcap",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "alert_message_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "alerted_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_win_milestones_wallet",
+          "idx_win_milestones_token",
+          "sqlite_autoindex_win_milestones_1"
+        ]
+      },
+      "cron_states": {
+        "name": "cron_states",
+        "columns": [
+          {
+            "name": "cron_name",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "enabled",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "1",
+            "primary_key": false
+          },
+          {
+            "name": "last_updated",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 9,
+        "sample_data": [
+          {
+            "cron_name": "buy_alerts",
+            "enabled": 1,
+            "last_updated": "2026-03-08 01:00:09"
+          },
+          {
+            "cron_name": "insider_detection",
+            "enabled": 1,
+            "last_updated": "2026-03-08 01:00:09"
+          },
+          {
+            "cron_name": "main_pipeline",
+            "enabled": 1,
+            "last_updated": "2026-03-08 01:00:09"
+          }
+        ],
+        "indexes": [
+          "sqlite_autoindex_cron_states_1"
+        ]
+      },
+      "position_lifecycle": {
+        "name": "position_lifecycle",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "buy_event_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_address",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_symbol",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "entry_timestamp",
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "entry_mc",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "entry_liquidity",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "buy_sol_amount",
+            "type": "REAL",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "sell_event_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "exit_timestamp",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "exit_mc",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "sell_sol_received",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "peak_mc",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "peak_timestamp",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "time_to_peak_hours",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "current_mc",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "last_checked_timestamp",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "check_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "final_roi_percent",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "hold_duration_hours",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "outcome",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "outcome_labeled_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wallet_type",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wallet_tier",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "alert_sent",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "alert_message_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "updated_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "token_age_at_entry",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "volume_5m",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "volume_1h",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "volume_24h",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "volume_acceleration",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "price_velocity",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "buy_sell_ratio",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "insider_wallet_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "elite_wallet_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "repeated_buyer_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "new_wallet_influx",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "holder_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "holder_growth_rate",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "top10_concentration",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "holder_velocity",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "dev_wallet_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "dev_initial_holdings",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "dev_current_holdings",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "dev_sold",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "dev_sell_timestamp",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "dev_sell_amount",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "liquidity_removed",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "liquidity_removal_timestamp",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "lifecycle_stage",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "stage_transitions",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "consolidation_range_low",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "consolidation_range_high",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "consolidation_duration_hours",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "breakout_direction",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "mc_history",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_position_lifecycle_token",
+          "idx_position_lifecycle_entry",
+          "idx_position_lifecycle_outcome",
+          "idx_position_lifecycle_wallet",
+          "idx_position_lifecycle_open",
+          "sqlite_autoindex_position_lifecycle_1"
+        ]
+      },
+      "user_algo_config": {
+        "name": "user_algo_config",
+        "columns": [
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "risk_tolerance",
+            "type": "TEXT",
+            "nullable": true,
+            "default": "'balanced'",
+            "primary_key": false
+          },
+          {
+            "name": "preferred_win_rate",
+            "type": "REAL",
+            "nullable": true,
+            "default": "0.65",
+            "primary_key": false
+          },
+          {
+            "name": "preferred_roi",
+            "type": "REAL",
+            "nullable": true,
+            "default": "100.0",
+            "primary_key": false
+          },
+          {
+            "name": "max_token_age_hours",
+            "type": "REAL",
+            "nullable": true,
+            "default": "24.0",
+            "primary_key": false
+          },
+          {
+            "name": "max_mcap",
+            "type": "REAL",
+            "nullable": true,
+            "default": "10000000.0",
+            "primary_key": false
+          },
+          {
+            "name": "min_liquidity",
+            "type": "REAL",
+            "nullable": true,
+            "default": "10000.0",
+            "primary_key": false
+          },
+          {
+            "name": "feed_size",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "150",
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "last_rebalanced",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": []
+      },
+      "user_wallet_feed": {
+        "name": "user_wallet_feed",
+        "columns": [
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "selection_score",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "match_reason",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "added_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "last_performance_check",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_user_wallet_feed_user",
+          "sqlite_autoindex_user_wallet_feed_1"
+        ]
+      },
+      "wallet_global_pool": {
+        "name": "wallet_global_pool",
+        "columns": [
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "tier",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "quality_score",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "win_rate",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "avg_roi",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "consistency",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "specialization",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "last_30d_performance",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "total_trades_30d",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "avg_hold_time_hours",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "risk_score",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "updated_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "importance_score",
+            "type": "REAL",
+            "nullable": true,
+            "default": "0.0",
+            "primary_key": false
+          },
+          {
+            "name": "importance_updated_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "runner_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "rug_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "sideways_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "tokens_2x_plus",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "tokens_3x_plus",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "tokens_5x_plus",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "tokens_10x_plus",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_wallet_global_pool_importance",
+          "idx_wallet_global_pool_score",
+          "idx_wallet_global_pool_tier",
+          "sqlite_autoindex_wallet_global_pool_1"
+        ]
+      },
+      "trade_events": {
+        "name": "trade_events",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wallet_type",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wallet_tier",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_address",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_symbol",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_name",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "timestamp",
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "trade_type",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "sol_amount",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_amount",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "price_per_token",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_age_hours",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "marketcap_at_trade",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "liquidity_at_trade",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "volume_24h_at_trade",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "holder_count_at_trade",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "buy_sell_ratio_at_trade",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "max_mc_after_entry",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "max_drawdown_percent",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "time_to_peak_hours",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "final_roi_percent",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "outcome",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "outcome_filled_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "tx_signature",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "dex",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_trade_events_outcome",
+          "idx_trade_events_timestamp",
+          "idx_trade_events_token",
+          "idx_trade_events_wallet",
+          "sqlite_autoindex_trade_events_1"
+        ]
+      },
+      "token_lifecycle": {
+        "name": "token_lifecycle",
+        "columns": [
+          {
+            "name": "token_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "token_symbol",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_name",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "first_seen_at",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "launch_mcap",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "peak_mcap",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "peak_mcap_at",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "current_mcap",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "is_rugged",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "rug_detected_at",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "liquidity_removed_percent",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "dev_sold_percent",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "total_buys",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "total_sells",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "insider_buy_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "elite_buy_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "last_updated",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_token_lifecycle_mcap",
+          "sqlite_autoindex_token_lifecycle_1"
+        ]
+      },
+      "ml_features": {
+        "name": "ml_features",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "trade_event_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "mc_to_liq_ratio",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_age_normalized",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "price_velocity",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "volume_acceleration",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "buy_sell_ratio",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "holder_growth_rate",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "insider_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "elite_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "high_quality_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "total_smart_money",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "dev_sold",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "liquidity_removed",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "large_holder_concentration",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "outcome_label",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "roi_label",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_ml_features_event"
+        ]
+      },
+      "ml_models": {
+        "name": "ml_models",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "model_version",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "model_type",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "training_date",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "training_samples",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "accuracy",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "precision_runner",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "recall_runner",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "f1_runner",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "precision_rug",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "recall_rug",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "f1_rug",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "auc_roc",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "model_path",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "feature_importance_json",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "is_active",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": []
+      },
+      "ai_decisions": {
+        "name": "ai_decisions",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "trade_event_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "prob_runner",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "prob_sideways",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "prob_rug",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "expected_roi",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "confidence_score",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "decision",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "decision_reason",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "position_size_pct",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "executed",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "execution_price",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "execution_time",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "actual_outcome",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "actual_roi",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "outcome_checked_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "model_version",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_ai_decisions_decision",
+          "idx_ai_decisions_token"
+        ]
+      },
+      "auto_trades": {
+        "name": "auto_trades",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "ai_decision_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "wallet_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_symbol",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "trade_type",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "sol_amount",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_amount",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "telegram_confirmation_msg_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "confirmed_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "tx_signature",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "execution_price",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "execution_time",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "fee_amount_sol",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "exit_price",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "exit_time",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "exit_tx_signature",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "pnl_sol",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "pnl_percent",
+            "type": "REAL",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_auto_trades_status",
+          "idx_auto_trades_user"
+        ]
+      },
+      "user_ai_usage": {
+        "name": "user_ai_usage",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "month",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "input_tokens",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "output_tokens",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "cached_tokens",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "total_cost_usd",
+            "type": "REAL",
+            "nullable": true,
+            "default": "0.0",
+            "primary_key": false
+          },
+          {
+            "name": "request_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "last_request_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_ai_usage_user_month",
+          "sqlite_autoindex_user_ai_usage_1"
+        ]
+      },
+      "ai_conversations": {
+        "name": "ai_conversations",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "conversation_type",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "messages_json",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "summary",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          },
+          {
+            "name": "expires_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_ai_conversations_user"
+        ]
+      },
+      "ai_trade_explanations": {
+        "name": "ai_trade_explanations",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "ai_decision_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "token_address",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "explanation",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "confidence_reasoning",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "risk_factors",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_ai_explanations_token"
+        ]
+      },
+      "ai_weekly_reviews": {
+        "name": "ai_weekly_reviews",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "week_start",
+            "type": "DATE",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "review_text",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "suggestions_json",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "performance_summary_json",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMP",
+            "nullable": true,
+            "default": "CURRENT_TIMESTAMP",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "sqlite_autoindex_ai_weekly_reviews_1"
+        ]
+      }
+    },
+    "hedgehog_memory": {
+      "decisions": {
+        "name": "decisions",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "timestamp",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "event_type",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "event_data",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "decision",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "reasoning",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "action_taken",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "tool_used",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "outcome",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "outcome_details",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "cost_tokens",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_decisions_timestamp"
+        ]
+      },
+      "errors": {
+        "name": "errors",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "timestamp",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "error_type",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "error_message",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "context",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "stack_trace",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "resolved",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "fix_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_errors_resolved",
+          "idx_errors_timestamp"
+        ]
+      },
+      "fixes": {
+        "name": "fixes",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "timestamp",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "error_pattern",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "fix_description",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "fix_action",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "fix_params",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "success_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "failure_count",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          },
+          {
+            "name": "enabled",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "1",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": [
+          "idx_fixes_pattern"
+        ]
+      },
+      "event_log": {
+        "name": "event_log",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": null,
+            "primary_key": true
+          },
+          {
+            "name": "timestamp",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "event_type",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "event_source",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "event_data",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "primary_key": false
+          },
+          {
+            "name": "processed",
+            "type": "INTEGER",
+            "nullable": true,
+            "default": "0",
+            "primary_key": false
+          }
+        ],
+        "row_count": 0,
+        "sample_data": [],
+        "indexes": []
+      }
+    }
+  },
+  "wallet_counts": {
+    "qualified": 23,
+    "user": 0,
+    "insider": 0,
+    "copy_pool": 0,
+    "global_pool": 0
+  },
+  "position_counts": {
+    "total": 0
+  },
+  "recent_trades": 0,
+  "total_pnl": 0.0,
+  "services": [
+    {
+      "name": "bot",
+      "status": "stopped",
+      "pid": null,
+      "cpu_percent": 0,
+      "memory_mb": 0,
+      "command": ""
+    },
+    {
+      "name": "webhook",
+      "status": "stopped",
+      "pid": null,
+      "cpu_percent": 0,
+      "memory_mb": 0,
+      "command": ""
+    },
+    {
+      "name": "monitor",
+      "status": "stopped",
+      "pid": null,
+      "cpu_percent": 0,
+      "memory_mb": 0,
+      "command": ""
+    },
+    {
+      "name": "pipeline",
+      "status": "stopped",
+      "pid": null,
+      "cpu_percent": 0,
+      "memory_mb": 0,
+      "command": ""
+    },
+    {
+      "name": "hedgehog",
+      "status": "running",
+      "pid": 8095,
+      "cpu_percent": 67.4,
+      "memory_mb": 0.2,
+      "command": "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python -m hedgehog init"
+    }
+  ],
+  "python_files": {
+    "bot/telegram_bot.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/telegram_bot.py",
+      "purpose": "Telegram Bot for SoulWinners",
+      "classes": [
+        "AlertFormatter",
+        "SoulWinnersBot"
+      ],
+      "functions": [
+        "main",
+        "format_wallet_short",
+        "get_token_info",
+        "format_buy_alert",
+        "format_sell_alert",
+        "start",
+        "stop",
+        "cmd_start",
+        "cmd_status",
+        "cmd_pool",
+        "cmd_elite",
+        "cmd_tiers",
+        "cmd_recent",
+        "cmd_settings",
+        "cmd_help",
+        "send_buy_alert",
+        "send_sell_alert"
+      ],
+      "imports": [
+        "typing",
+        "asyncio",
+        "datetime",
+        "config",
+        "logging",
+        "telegram",
+        "aiohttp"
+      ],
+      "line_count": 540,
+      "last_modified": "2026-02-24T01:48:01.138268"
+    },
+    "bot/realtime_monitor.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/realtime_monitor.py",
+      "purpose": "Real-Time Transaction Monitor",
+      "classes": [
+        "PriceService",
+        "WalletDataService",
+        "AccumulationTracker",
+        "SmartMoneyTracker",
+        "RealTimeMonitor"
+      ],
+      "functions": [
+        "main",
+        "get_sol_price",
+        "get_wallet_balance",
+        "get_recent_trades",
+        "record_buy",
+        "cleanup_old_entries",
+        "record_buy",
+        "get_smart_money_count",
+        "load_qualified_wallets",
+        "start",
+        "stop",
+        "test_callback"
+      ],
+      "imports": [
+        "typing",
+        "trader",
+        "database",
+        "asyncio",
+        "json",
+        "datetime",
+        "config",
+        "logging",
+        "aiohttp",
+        "websockets"
+      ],
+      "line_count": 629,
+      "last_modified": "2026-02-25T19:48:22.458046"
+    },
+    "bot/real_alerts.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/real_alerts.py",
+      "purpose": "Real Alert Formatter",
+      "classes": [
+        "RealAlertSender"
+      ],
+      "functions": [
+        "validate_wallet",
+        "format_real_alert",
+        "format_accumulation_alert",
+        "send_real_alert"
+      ],
+      "imports": [
+        "typing",
+        "asyncio",
+        "datetime",
+        "config",
+        "logging",
+        "telegram",
+        "aiohttp"
+      ],
+      "line_count": 221,
+      "last_modified": "2026-02-25T14:39:44.164855"
+    },
+    "bot/monitor.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/monitor.py",
+      "purpose": "Real-time Transaction Monitor",
+      "classes": [
+        "TransactionMonitor",
+        "EnhancedMonitor"
+      ],
+      "functions": [
+        "main",
+        "add_wallet",
+        "remove_wallet",
+        "update_wallets",
+        "start",
+        "stop",
+        "update_wallets",
+        "start",
+        "stop",
+        "on_buy",
+        "on_sell"
+      ],
+      "imports": [
+        "typing",
+        "asyncio",
+        "json",
+        "datetime",
+        "config",
+        "logging",
+        "collectors",
+        "aiohttp",
+        "websockets"
+      ],
+      "line_count": 305,
+      "last_modified": "2026-02-24T13:06:47.647020"
+    },
+    "bot/lifecycle_tracker.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/lifecycle_tracker.py",
+      "purpose": "Position Lifecycle Tracker",
+      "classes": [
+        "PositionLifecycleTracker"
+      ],
+      "functions": [
+        "should_track_position",
+        "get_lifecycle_tracker",
+        "create_position",
+        "get_oldest_open_position",
+        "record_sell_event",
+        "close_position",
+        "update_position_mc",
+        "update_position_with_metrics",
+        "update_elite_counts",
+        "get_token_exit_summary",
+        "auto_label_old_position",
+        "get_open_positions",
+        "get_positions_needing_label",
+        "get_stats"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "json",
+        "time",
+        "datetime",
+        "logging",
+        "aiohttp"
+      ],
+      "line_count": 1131,
+      "last_modified": "2026-03-16T00:55:35.443632"
+    },
+    "bot/personalized_algo.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/personalized_algo.py",
+      "purpose": "Personalized Wallet Selection Algorithm",
+      "classes": [
+        "RiskTolerance",
+        "WalletScore",
+        "PersonalizedAlgo"
+      ],
+      "functions": [
+        "create_default_config_for_user",
+        "get_user_config",
+        "set_user_config",
+        "get_global_pool",
+        "populate_global_pool",
+        "calculate_wallet_match_score",
+        "select_wallets_for_user",
+        "save_user_feed",
+        "get_user_feed",
+        "rebalance_user_feed",
+        "get_feed_stats"
+      ],
+      "imports": [
+        "enum",
+        "typing",
+        "database",
+        "datetime",
+        "logging",
+        "sqlite3",
+        "dataclasses"
+      ],
+      "line_count": 642,
+      "last_modified": "2026-03-13T21:13:34.425990"
+    },
+    "bot/alert_formatter.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/alert_formatter.py",
+      "purpose": "Alert Formatter - CORRECT format with token metrics",
+      "classes": [
+        "AlertFormatter"
+      ],
+      "functions": [
+        "fetch_live_balance",
+        "fetch_live_wallet_stats",
+        "format_number",
+        "format_buy_alert_async",
+        "format_buy_alert",
+        "format_accumulation_alert",
+        "get_buy_alert_buttons",
+        "format_win_milestone_alert"
+      ],
+      "imports": [
+        "typing",
+        "asyncio",
+        "datetime",
+        "config",
+        "logging",
+        "telegram",
+        "aiohttp"
+      ],
+      "line_count": 489,
+      "last_modified": "2026-03-08T17:18:20.157282"
+    },
+    "bot/comprehensive_tracker.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/comprehensive_tracker.py",
+      "purpose": "Comprehensive Position Lifecycle Tracker",
+      "classes": [
+        "ComprehensiveTracker"
+      ],
+      "functions": [
+        "get_comprehensive_tracker",
+        "extract_ml_features",
+        "fetch_comprehensive_metrics",
+        "check_wallet_confluence",
+        "update_position_comprehensive",
+        "update_dev_tracking"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "asyncio",
+        "json",
+        "time",
+        "datetime",
+        "logging",
+        "aiohttp"
+      ],
+      "line_count": 417,
+      "last_modified": "2026-03-14T22:03:48.522049"
+    },
+    "bot/__init__.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/__init__.py",
+      "purpose": "Telegram Bot Module",
+      "classes": [],
+      "functions": [],
+      "imports": [
+        "trader_commands"
+      ],
+      "line_count": 12,
+      "last_modified": "2026-03-07T16:01:05.582498"
+    },
+    "bot/admin_commands.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/admin_commands.py",
+      "purpose": "Private Admin Commands",
+      "classes": [
+        "AdminCommands"
+      ],
+      "functions": [
+        "load_admin_id",
+        "is_admin",
+        "register_admin",
+        "cmd_wallets",
+        "cmd_leaderboard",
+        "cmd_wallet_details",
+        "cmd_pool_stats"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "asyncio",
+        "datetime",
+        "config",
+        "telegram"
+      ],
+      "line_count": 341,
+      "last_modified": "2026-02-24T09:12:14.504958"
+    },
+    "bot/realtime_bot.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/realtime_bot.py",
+      "purpose": "Real-Time Monitoring Bot",
+      "classes": [
+        "WatchlistPositionTracker",
+        "WatchlistTracker",
+        "SmartMoneyTracker",
+        "PriceService",
+        "WinMilestoneTracker",
+        "InsiderTracker",
+        "RealTimeBot"
+      ],
+      "functions": [
+        "cache_alert_wallet",
+        "get_wallet_from_alert_cache",
+        "get_wallet_from_truncated",
+        "main",
+        "record_buy",
+        "get_position",
+        "close_position",
+        "load_watchlist_wallets",
+        "get_wallet_subscribers",
+        "is_watchlist_wallet",
+        "load_wallet_tiers",
+        "record_buy",
+        "get_smart_money_count",
+        "get_sol_price",
+        "record_entry",
+        "check_milestone",
+        "load_from_db",
+        "load_insider_wallets",
+        "is_insider",
+        "get_insider_info",
+        "calculate_insider_confidence",
+        "get_insider_real_stats",
+        "load_qualified_wallets",
+        "start",
+        "stop",
+        "fmt_num",
+        "fmt_num"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "asyncio",
+        "aiohttp",
+        "bot",
+        "datetime",
+        "config",
+        "logging",
+        "collectors",
+        "telegram",
+        "sqlite3",
+        "ml"
+      ],
+      "line_count": 2074,
+      "last_modified": "2026-03-15T06:17:28.884548"
+    },
+    "bot/auto_trader.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/auto_trader.py",
+      "purpose": "Auto-Trader Module for V3 Edge",
+      "classes": [
+        "TradeMode",
+        "TradeStatus",
+        "AutoTrader"
+      ],
+      "functions": [
+        "get_auto_trader",
+        "process_trade_signal",
+        "is_enabled",
+        "get_daily_trade_count",
+        "process_signal",
+        "handle_confirmation",
+        "cleanup_expired_trades",
+        "get_pending_trades",
+        "get_today_stats"
+      ],
+      "imports": [
+        "enum",
+        "typing",
+        "trader",
+        "database",
+        "asyncio",
+        "sys",
+        "pathlib",
+        "datetime",
+        "config",
+        "logging",
+        "telegram",
+        "ml"
+      ],
+      "line_count": 684,
+      "last_modified": "2026-03-13T21:27:17.346538"
+    },
+    "bot/utils.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/utils.py",
+      "purpose": "Bot Utilities - Wallet extraction and helper functions",
+      "classes": [],
+      "functions": [
+        "is_likely_token_address",
+        "extract_wallet_from_text",
+        "is_valid_solana_address",
+        "truncate_wallet",
+        "format_wallet_for_user",
+        "format_stats",
+        "parse_remove_index",
+        "format_time_ago",
+        "find_wallet_from_truncated_in_db",
+        "has_truncated_wallet_pattern",
+        "extract_wallet_from_bot_alert"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "datetime",
+        "re",
+        "logging"
+      ],
+      "line_count": 373,
+      "last_modified": "2026-03-08T10:32:59.172669"
+    },
+    "bot/lifecycle_stages.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/lifecycle_stages.py",
+      "purpose": "Lifecycle Stage Detector",
+      "classes": [
+        "LifecycleStageDetector"
+      ],
+      "functions": [
+        "get_stage_detector",
+        "analyze_stage_sequence",
+        "get_common_sequences",
+        "format_stage_for_ai",
+        "detect_stage",
+        "detect_breakout",
+        "track_stage_transitions",
+        "update_mc_history",
+        "update_position_stage"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "json",
+        "time",
+        "datetime",
+        "logging"
+      ],
+      "line_count": 530,
+      "last_modified": "2026-03-14T22:02:28.218194"
+    },
+    "bot/trader_commands.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/trader_commands.py",
+      "purpose": "Auto-Trader Telegram Commands",
+      "classes": [
+        "TraderCommands"
+      ],
+      "functions": [
+        "update_user_menu",
+        "register_trader_commands",
+        "cmd_deposit",
+        "cmd_balance",
+        "cmd_strategy",
+        "cmd_copylist",
+        "cmd_enable",
+        "cmd_disable",
+        "cmd_positions",
+        "cmd_history",
+        "cmd_fees",
+        "cmd_report",
+        "cmd_withdraw",
+        "cmd_users",
+        "cmd_totalfees",
+        "cmd_transferfees",
+        "cmd_authorize",
+        "cmd_revoke",
+        "cmd_authorized"
+      ],
+      "imports": [
+        "typing",
+        "trader",
+        "database",
+        "asyncio",
+        "pathlib",
+        "json",
+        "datetime",
+        "config",
+        "logging",
+        "telegram",
+        "sqlite3",
+        "io",
+        "qrcode"
+      ],
+      "line_count": 1253,
+      "last_modified": "2026-03-08T19:12:55.192832"
+    },
+    "bot/commands.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/bot/commands.py",
+      "purpose": "Telegram Bot Commands - Private DM Only",
+      "classes": [
+        "CommandBot"
+      ],
+      "functions": [
+        "run_command_bot",
+        "start",
+        "stop",
+        "set_user_menu",
+        "cmd_register",
+        "cmd_start",
+        "cmd_pool",
+        "cmd_wallets",
+        "cmd_leaderboard",
+        "cmd_fullboard",
+        "cmd_adminleaderboard",
+        "cmd_add_wallet",
+        "cmd_watchlist",
+        "cmd_remove_wallet",
+        "cmd_promote",
+        "cmd_demote",
+        "cmd_purge_wallet",
+        "cmd_label",
+        "cmd_summary",
+        "cmd_premium",
+        "cmd_buttons",
+        "cmd_export",
+        "cmd_stats",
+        "cmd_help",
+        "cmd_userguide",
+        "cmd_settings",
+        "cmd_cron",
+        "cmd_logs",
+        "cmd_restart",
+        "cmd_crons"
+      ],
+      "imports": [
+        "typing",
+        "pandas",
+        "database",
+        "trader",
+        "os",
+        "asyncio",
+        "utils",
+        "bot",
+        "sqlite3",
+        "datetime",
+        "subprocess",
+        "config",
+        "logging",
+        "collectors",
+        "numpy",
+        "telegram",
+        "aiohttp",
+        "io"
+      ],
+      "line_count": 3638,
+      "last_modified": "2026-03-14T22:57:02.599381"
+    },
+    "pipeline/insider_detector.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/pipeline/insider_detector.py",
+      "purpose": "Insider Detector Pipeline",
+      "classes": [
+        "InsiderProfile",
+        "InsiderDetector",
+        "InsiderPipeline"
+      ],
+      "functions": [
+        "run_insider_pipeline",
+        "analyze_wallet",
+        "scan_and_detect",
+        "get_airdrop_stats",
+        "save_insider",
+        "start",
+        "promote_insiders",
+        "stop"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "pipeline",
+        "asyncio",
+        "datetime",
+        "logging",
+        "collectors",
+        "dataclasses"
+      ],
+      "line_count": 429,
+      "last_modified": "2026-02-27T12:41:26.026284"
+    },
+    "pipeline/metrics.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/pipeline/metrics.py",
+      "purpose": "Metrics Calculator",
+      "classes": [
+        "MetricsCalculator"
+      ],
+      "functions": [
+        "main",
+        "calculate_wallet_metrics",
+        "calculate_batch_metrics",
+        "merge_wallet_sources"
+      ],
+      "imports": [
+        "typing",
+        "pandas",
+        "datetime",
+        "logging",
+        "numpy"
+      ],
+      "line_count": 223,
+      "last_modified": "2026-02-24T01:10:45.788891"
+    },
+    "pipeline/clustering.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/pipeline/clustering.py",
+      "purpose": "K-Means Clustering Pipeline",
+      "classes": [
+        "ClusteringPipeline"
+      ],
+      "functions": [
+        "main",
+        "prepare_features",
+        "fit_transform",
+        "transform",
+        "save_model",
+        "load_model"
+      ],
+      "imports": [
+        "typing",
+        "pandas",
+        "pathlib",
+        "joblib",
+        "config",
+        "sklearn",
+        "logging",
+        "numpy"
+      ],
+      "line_count": 231,
+      "last_modified": "2026-02-24T01:11:14.914397"
+    },
+    "pipeline/__init__.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/pipeline/__init__.py",
+      "purpose": "Pipeline Module",
+      "classes": [],
+      "functions": [],
+      "imports": [
+        "cluster_detector",
+        "insider_detector"
+      ],
+      "line_count": 19,
+      "last_modified": "2026-02-25T19:49:03.031852"
+    },
+    "pipeline/cluster_detector.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/pipeline/cluster_detector.py",
+      "purpose": "Cluster Detector - Bubble Map / Wallet Clustering Analysis",
+      "classes": [
+        "WalletCluster",
+        "WalletConnection",
+        "ClusterDetector",
+        "ClusterScanner"
+      ],
+      "functions": [
+        "main",
+        "analyze_wallet_connections",
+        "build_clusters",
+        "save_cluster_to_db",
+        "save_connection_to_db",
+        "get_wallet_cluster_info",
+        "start",
+        "stop",
+        "find",
+        "union"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "asyncio",
+        "collections",
+        "json",
+        "datetime",
+        "config",
+        "logging",
+        "collectors",
+        "aiohttp",
+        "dataclasses"
+      ],
+      "line_count": 599,
+      "last_modified": "2026-03-08T01:34:29.709398"
+    },
+    "pipeline/orchestrator.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/pipeline/orchestrator.py",
+      "purpose": "Pipeline Orchestrator",
+      "classes": [
+        "PipelineOrchestrator"
+      ],
+      "functions": [
+        "main",
+        "run_full_pipeline"
+      ],
+      "imports": [
+        "typing",
+        "pandas",
+        "database",
+        "pipeline",
+        "asyncio",
+        "datetime",
+        "config",
+        "logging",
+        "collectors",
+        "sqlite3"
+      ],
+      "line_count": 373,
+      "last_modified": "2026-02-27T12:33:58.676417"
+    },
+    "pipeline/ranking.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/pipeline/ranking.py",
+      "purpose": "Ranking System",
+      "classes": [
+        "RankingSystem",
+        "QualityFilter"
+      ],
+      "functions": [
+        "main",
+        "normalize_column",
+        "calculate_priority_scores",
+        "assign_tiers",
+        "rank_and_tier",
+        "apply_filters",
+        "get_filter_stats",
+        "get_tier"
+      ],
+      "imports": [
+        "typing",
+        "pandas",
+        "utils",
+        "config",
+        "logging",
+        "numpy"
+      ],
+      "line_count": 288,
+      "last_modified": "2026-03-02T22:16:58.536364"
+    },
+    "ml/predictor.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/ml/predictor.py",
+      "purpose": "Live Predictor for V3 Edge Auto-Trader",
+      "classes": [
+        "LivePredictor"
+      ],
+      "functions": [
+        "get_predictor",
+        "predict_trade",
+        "should_approve_trade",
+        "load_model",
+        "is_ready",
+        "predict",
+        "log_decision"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "sys",
+        "pathlib",
+        "logging",
+        "numpy",
+        "ml"
+      ],
+      "line_count": 354,
+      "last_modified": "2026-03-13T21:18:27.676330"
+    },
+    "ml/feature_engineering.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/ml/feature_engineering.py",
+      "purpose": "Feature Engineering for ML Model",
+      "classes": [
+        "FeatureVector",
+        "FeatureEngineer"
+      ],
+      "functions": [
+        "build_live_features",
+        "normalize",
+        "get_smart_money_in_token",
+        "calculate_price_velocity",
+        "calculate_volume_acceleration",
+        "calculate_buy_sell_ratio",
+        "check_dev_activity",
+        "build_features_for_event",
+        "to_numpy",
+        "get_feature_names",
+        "build_training_dataset",
+        "save_features_to_db"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "sys",
+        "pathlib",
+        "datetime",
+        "logging",
+        "numpy",
+        "sqlite3",
+        "dataclasses"
+      ],
+      "line_count": 584,
+      "last_modified": "2026-03-13T21:16:38.619765"
+    },
+    "ml/train_model.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/ml/train_model.py",
+      "purpose": "ML Model Training for V3 Edge Auto-Trader",
+      "classes": [
+        "ModelTrainer"
+      ],
+      "functions": [
+        "main",
+        "load_data",
+        "balance_classes",
+        "train_xgboost",
+        "train_lightgbm",
+        "train",
+        "predict",
+        "evaluate",
+        "get_feature_importance",
+        "save_model",
+        "deploy_model",
+        "load_model"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "xgboost",
+        "sys",
+        "pathlib",
+        "lightgbm",
+        "json",
+        "joblib",
+        "datetime",
+        "sklearn",
+        "logging",
+        "numpy",
+        "argparse",
+        "ml"
+      ],
+      "line_count": 665,
+      "last_modified": "2026-03-13T21:17:46.495319"
+    },
+    "ml/ai_advisor.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/ml/ai_advisor.py",
+      "purpose": "AI Advisor Module for V3 Edge Auto-Trader",
+      "classes": [
+        "UsageStats",
+        "CostTracker",
+        "AIAdvisor"
+      ],
+      "functions": [
+        "get_ai_advisor",
+        "get_user_usage",
+        "get_user_budget",
+        "check_budget",
+        "calculate_cost",
+        "record_usage",
+        "is_available",
+        "explain_trade_decision",
+        "onboard_user",
+        "supervise_xgboost_decision",
+        "generate_weekly_review",
+        "get_strategy_suggestion",
+        "get_user_usage_summary",
+        "test"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "sys",
+        "asyncio",
+        "pathlib",
+        "json",
+        "datetime",
+        "config",
+        "logging",
+        "re",
+        "anthropic",
+        "dataclasses"
+      ],
+      "line_count": 694,
+      "last_modified": "2026-03-13T21:26:07.367132"
+    },
+    "ml/__init__.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/ml/__init__.py",
+      "purpose": "ML Module for V3 Edge Auto-Trader",
+      "classes": [],
+      "functions": [],
+      "imports": [],
+      "line_count": 10,
+      "last_modified": "2026-03-13T21:15:35.137026"
+    },
+    "ml/continuous_learning.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/ml/continuous_learning.py",
+      "purpose": "Continuous Learning Pipeline for V3 Edge Auto-Trader",
+      "classes": [
+        "OutcomeLabeler",
+        "ContinuousLearner"
+      ],
+      "functions": [
+        "get_dataset_stats",
+        "get_lifecycle_training_data",
+        "main",
+        "get_token_peak_and_current",
+        "determine_outcome",
+        "label_unlabeled_events",
+        "run_labeling",
+        "run_training",
+        "compare_models",
+        "deploy_model",
+        "run_full_pipeline"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "sys",
+        "asyncio",
+        "pathlib",
+        "aiohttp",
+        "datetime",
+        "logging",
+        "argparse",
+        "ml"
+      ],
+      "line_count": 683,
+      "last_modified": "2026-03-14T18:30:07.391545"
+    },
+    "ml/pattern_recognition.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/ml/pattern_recognition.py",
+      "purpose": "Pattern Memory & Recognition for AI Trading",
+      "classes": [
+        "PatternMemory"
+      ],
+      "functions": [
+        "get_pattern_memory",
+        "create_pattern_signature",
+        "signature_to_string",
+        "find_similar_patterns",
+        "get_pattern_description",
+        "format_ai_context"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "logging"
+      ],
+      "line_count": 293,
+      "last_modified": "2026-03-14T19:00:02.244032"
+    },
+    "trader/fee_collector.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/trader/fee_collector.py",
+      "purpose": "Fee Collection System",
+      "classes": [],
+      "functions": [
+        "init_fee_tables",
+        "collect_fee",
+        "get_user_fees",
+        "get_total_fees",
+        "get_pending_fees",
+        "send_to_owner",
+        "get_fee_history"
+      ],
+      "imports": [
+        "typing",
+        "os",
+        "pathlib",
+        "wallet_manager",
+        "dotenv",
+        "datetime",
+        "logging",
+        "sqlite3",
+        "solana",
+        "solders"
+      ],
+      "line_count": 395,
+      "last_modified": "2026-03-07T15:44:57.313094"
+    },
+    "trader/ai_advisor.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/trader/ai_advisor.py",
+      "purpose": "Kimi AI Strategy Advisor",
+      "classes": [
+        "TradeStats"
+      ],
+      "functions": [
+        "init_ai_tables",
+        "analyze_performance",
+        "get_current_strategy",
+        "generate_report",
+        "suggest_improvements",
+        "send_report_to_user",
+        "get_report_history"
+      ],
+      "imports": [
+        "typing",
+        "os",
+        "pathlib",
+        "sqlite3",
+        "json",
+        "datetime",
+        "logging",
+        "re",
+        "telegram",
+        "requests",
+        "dataclasses"
+      ],
+      "line_count": 517,
+      "last_modified": "2026-03-07T15:50:56.525757"
+    },
+    "trader/__init__.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/trader/__init__.py",
+      "purpose": "OpenClaw Auto-Trader Module",
+      "classes": [],
+      "functions": [],
+      "imports": [
+        "fee_collector",
+        "strategy",
+        "solana_dex",
+        "ai_advisor",
+        "position_manager",
+        "openclaw"
+      ],
+      "line_count": 47,
+      "last_modified": "2026-03-07T15:51:27.265761"
+    },
+    "trader/strategy.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/trader/strategy.py",
+      "purpose": "Trading Strategy - Entry/Exit Rules for OpenClaw",
+      "classes": [
+        "ExitAction",
+        "StrategyConfig",
+        "TradingStrategy",
+        "SignalQueue"
+      ],
+      "functions": [
+        "should_enter",
+        "calculate_position_size",
+        "check_exit",
+        "record_price",
+        "format_exit_reason",
+        "push_signal",
+        "pop_signal",
+        "complete_signal",
+        "get_pending_count"
+      ],
+      "imports": [
+        "enum",
+        "typing",
+        "sqlite3",
+        "datetime",
+        "logging",
+        "position_manager",
+        "dataclasses"
+      ],
+      "line_count": 339,
+      "last_modified": "2026-02-25T14:47:06.972638"
+    },
+    "trader/position_manager.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/trader/position_manager.py",
+      "purpose": "Position Manager - Track open positions and P&L",
+      "classes": [
+        "PositionStatus",
+        "Position",
+        "PositionManager",
+        "WalletDecayChecker"
+      ],
+      "functions": [
+        "to_dict",
+        "can_open_position",
+        "has_position",
+        "open_position",
+        "update_position_price",
+        "partial_close",
+        "close_position",
+        "get_open_positions",
+        "get_stats",
+        "set_starting_balance",
+        "update_current_balance",
+        "check_wallet_performance",
+        "get_demoted_wallets",
+        "get_performance_history"
+      ],
+      "imports": [
+        "enum",
+        "typing",
+        "asyncio",
+        "pathlib",
+        "datetime",
+        "logging",
+        "sqlite3",
+        "dataclasses"
+      ],
+      "line_count": 770,
+      "last_modified": "2026-03-07T23:01:24.691126"
+    },
+    "trader/solana_dex.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/trader/solana_dex.py",
+      "purpose": "Solana DEX Integration - Jupiter Aggregator",
+      "classes": [
+        "JupiterDEX"
+      ],
+      "functions": [
+        "test_jupiter",
+        "get_sol_balance",
+        "get_token_balance",
+        "get_token_price",
+        "get_sol_price",
+        "get_quote",
+        "execute_swap",
+        "buy_token",
+        "sell_token",
+        "sell_token_percentage"
+      ],
+      "imports": [
+        "typing",
+        "os",
+        "asyncio",
+        "decimal",
+        "dotenv",
+        "json",
+        "base64",
+        "logging",
+        "aiohttp",
+        "solana",
+        "solders"
+      ],
+      "line_count": 423,
+      "last_modified": "2026-02-25T14:44:53.864272"
+    },
+    "trader/openclaw.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/trader/openclaw.py",
+      "purpose": "OpenClaw Auto-Trader",
+      "classes": [
+        "OpenClawTrader"
+      ],
+      "functions": [
+        "receive_soulwinners_signal",
+        "main",
+        "start",
+        "stop",
+        "get_status"
+      ],
+      "imports": [
+        "typing",
+        "os",
+        "strategy",
+        "fee_collector",
+        "asyncio",
+        "dotenv",
+        "datetime",
+        "solana_dex",
+        "logging",
+        "telegram",
+        "position_manager"
+      ],
+      "line_count": 468,
+      "last_modified": "2026-03-07T15:45:40.652405"
+    },
+    "trader/wallet_manager.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/trader/wallet_manager.py",
+      "purpose": "Multi-User Wallet Management",
+      "classes": [],
+      "functions": [
+        "create_user_wallet",
+        "get_user_wallet",
+        "decrypt_private_key",
+        "update_balance"
+      ],
+      "imports": [
+        "cryptography",
+        "os",
+        "pathlib",
+        "base64",
+        "sqlite3",
+        "solders"
+      ],
+      "line_count": 105,
+      "last_modified": "2026-03-07T11:57:26.663336"
+    },
+    "hedgehog/config.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/config.py",
+      "purpose": "Hedgehog Configuration - Hybrid AI Setup",
+      "classes": [
+        "AIModelConfig",
+        "HedgehogConfig"
+      ],
+      "functions": [
+        "get_config",
+        "update_config",
+        "get_model_for_task",
+        "is_action_auto_approved",
+        "is_action_blocked",
+        "requires_approval"
+      ],
+      "imports": [
+        "typing",
+        "pathlib",
+        "os",
+        "dataclasses"
+      ],
+      "line_count": 233,
+      "last_modified": "2026-03-18T12:31:41.155262"
+    },
+    "hedgehog/__init__.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/__init__.py",
+      "purpose": "Hedgehog v4.0 - The TRUE Brain of SoulWinners",
+      "classes": [],
+      "functions": [],
+      "imports": [
+        "knowledge",
+        "config",
+        "router",
+        "brain"
+      ],
+      "line_count": 65,
+      "last_modified": "2026-03-18T13:40:33.451650"
+    },
+    "hedgehog/run_hedgehog.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/run_hedgehog.py",
+      "purpose": "Hedgehog Runner - Full Autonomous AI Brain",
+      "classes": [],
+      "functions": [
+        "print_banner",
+        "run_telegram_bot",
+        "run_monitor",
+        "run_process",
+        "run_health_check",
+        "run_daily_report",
+        "run_command",
+        "run_interactive",
+        "run_status",
+        "run_init",
+        "run_refresh",
+        "main"
+      ],
+      "imports": [
+        "hedgehog",
+        "sys",
+        "asyncio",
+        "pathlib",
+        "json",
+        "datetime",
+        "logging",
+        "argparse"
+      ],
+      "line_count": 485,
+      "last_modified": "2026-03-18T13:38:44.024739"
+    },
+    "hedgehog/brain.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/brain.py",
+      "purpose": "Hedgehog Brain - Full Autonomous AI Agent",
+      "classes": [
+        "ActionLogger",
+        "PendingApproval",
+        "HedgehogBrain"
+      ],
+      "functions": [
+        "get_brain",
+        "log",
+        "get_recent",
+        "get_by_id",
+        "undo",
+        "request",
+        "approve",
+        "reject",
+        "get_pending",
+        "process_message",
+        "run_autonomous_check",
+        "run_proactive_monitoring",
+        "send_admin_notification",
+        "get_status"
+      ],
+      "imports": [
+        "typing",
+        "monitoring",
+        "asyncio",
+        "safety",
+        "pathlib",
+        "json",
+        "time",
+        "datetime",
+        "traceback",
+        "re",
+        "logging",
+        "config",
+        "tools",
+        "memory",
+        "router"
+      ],
+      "line_count": 1072,
+      "last_modified": "2026-03-18T12:48:37.551522"
+    },
+    "hedgehog/router.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/router.py",
+      "purpose": "Hedgehog AI Router - Intelligent Model Selection",
+      "classes": [
+        "ModelChoice",
+        "TaskComplexity",
+        "RoutingDecision",
+        "UsageStats",
+        "AIRouter"
+      ],
+      "functions": [
+        "get_router",
+        "total_calls",
+        "total_cost_usd",
+        "route",
+        "call",
+        "get_usage_summary",
+        "estimate_cost"
+      ],
+      "imports": [
+        "enum",
+        "typing",
+        "json",
+        "openai",
+        "time",
+        "datetime",
+        "traceback",
+        "logging",
+        "config",
+        "tools",
+        "anthropic",
+        "dataclasses"
+      ],
+      "line_count": 834,
+      "last_modified": "2026-03-18T12:29:51.474299"
+    },
+    "hedgehog/__main__.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/__main__.py",
+      "purpose": "Hedgehog module entry point.",
+      "classes": [],
+      "functions": [],
+      "imports": [
+        "run_hedgehog"
+      ],
+      "line_count": 11,
+      "last_modified": "2026-03-18T09:55:07.692489"
+    },
+    "hedgehog/tools/system_tools.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/tools/system_tools.py",
+      "purpose": "System Tools for Hedgehog",
+      "classes": [
+        "SystemStatusTool",
+        "ServiceRestartTool",
+        "LogAnalysisTool",
+        "ProcessListTool",
+        "HealthCheckTool",
+        "CodebaseSearchTool",
+        "GitHistoryTool",
+        "AutoHealTool"
+      ],
+      "functions": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "os",
+        "asyncio",
+        "pathlib",
+        "datetime",
+        "subprocess",
+        "time",
+        "aiohttp",
+        "psutil",
+        "base"
+      ],
+      "line_count": 732,
+      "last_modified": "2026-03-18T12:47:52.195509"
+    },
+    "hedgehog/tools/telegram_tools.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/tools/telegram_tools.py",
+      "purpose": "Telegram Tools for Hedgehog",
+      "classes": [
+        "TelegramSendTool",
+        "TelegramNotifyAdminTool",
+        "TelegramEditMessageTool",
+        "TelegramGetUpdatesTool"
+      ],
+      "functions": [
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "imports": [
+        "typing",
+        "hedgehog",
+        "asyncio",
+        "datetime",
+        "aiohttp",
+        "base"
+      ],
+      "line_count": 330,
+      "last_modified": "2026-03-18T09:48:03.301149"
+    },
+    "hedgehog/tools/__init__.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/tools/__init__.py",
+      "purpose": "Hedgehog Tool System v4.0 - Knowledge-First Architecture",
+      "classes": [],
+      "functions": [],
+      "imports": [
+        "system_tools",
+        "smart_tools",
+        "database_tools",
+        "trading_tools",
+        "telegram_tools",
+        "base"
+      ],
+      "line_count": 105,
+      "last_modified": "2026-03-18T13:40:16.154556"
+    },
+    "hedgehog/tools/trading_tools.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/tools/trading_tools.py",
+      "purpose": "Trading Tools for Hedgehog",
+      "classes": [
+        "GetPositionsTool",
+        "GetWalletPerformanceTool",
+        "GetTokenInfoTool",
+        "GetTradeHistoryTool",
+        "GetMarketOverviewTool"
+      ],
+      "functions": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "time",
+        "datetime",
+        "aiohttp",
+        "base"
+      ],
+      "line_count": 443,
+      "last_modified": "2026-03-18T09:47:41.179553"
+    },
+    "hedgehog/tools/database_tools.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/tools/database_tools.py",
+      "purpose": "Database Tools for Hedgehog",
+      "classes": [
+        "SchemaDiscoveryTool",
+        "DatabaseQueryTool",
+        "DatabaseWriteTool",
+        "WalletStatsTool",
+        "PositionStatsTool"
+      ],
+      "functions": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "time",
+        "sqlite3",
+        "base"
+      ],
+      "line_count": 512,
+      "last_modified": "2026-03-18T12:46:11.343609"
+    },
+    "hedgehog/tools/smart_tools.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/tools/smart_tools.py",
+      "purpose": "Smart Tools for Hedgehog - Knowledge Base First",
+      "classes": [
+        "SmartSchemaDiscoveryTool",
+        "SmartWalletStatsTool",
+        "SmartPositionStatsTool",
+        "SmartSystemStatusTool",
+        "SmartQuestionTool",
+        "SmartPnLTool"
+      ],
+      "functions": [
+        "get_smart_tools",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "imports": [
+        "typing",
+        "hedgehog",
+        "database",
+        "time",
+        "subprocess",
+        "re",
+        "sqlite3",
+        "base"
+      ],
+      "line_count": 595,
+      "last_modified": "2026-03-18T13:39:49.060788"
+    },
+    "hedgehog/tools/base.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/tools/base.py",
+      "purpose": "Base Tool Classes",
+      "classes": [
+        "SafetyLevel",
+        "ToolResult",
+        "ToolCall",
+        "Tool",
+        "ToolRegistry"
+      ],
+      "functions": [
+        "with_timeout",
+        "get_registry",
+        "register_tool",
+        "run_tool_with_timeout",
+        "decorator",
+        "to_dict",
+        "to_json",
+        "execute",
+        "validate_params",
+        "run",
+        "get_schema",
+        "to_openai_schema",
+        "register",
+        "get",
+        "get_all",
+        "get_by_safety",
+        "get_safe_tools",
+        "get_schemas",
+        "is_safe_for_auto_execute",
+        "wrapper"
+      ],
+      "imports": [
+        "enum",
+        "typing",
+        "abc",
+        "asyncio",
+        "json",
+        "datetime",
+        "time",
+        "logging",
+        "functools",
+        "dataclasses"
+      ],
+      "line_count": 347,
+      "last_modified": "2026-03-18T12:06:06.833659"
+    },
+    "hedgehog/memory/store.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/memory/store.py",
+      "purpose": "Memory Store for Hedgehog",
+      "classes": [
+        "Decision",
+        "Error",
+        "Fix",
+        "MemoryStore"
+      ],
+      "functions": [
+        "get_memory_store",
+        "to_dict",
+        "to_dict",
+        "to_dict",
+        "success_rate",
+        "save_decision",
+        "update_decision_outcome",
+        "get_recent_decisions",
+        "get_decisions_by_type",
+        "save_error",
+        "mark_error_resolved",
+        "get_unresolved_errors",
+        "find_similar_errors",
+        "save_fix",
+        "find_fix_for_error",
+        "update_fix_stats",
+        "get_all_fixes",
+        "log_event",
+        "get_unprocessed_events",
+        "mark_event_processed",
+        "get_stats",
+        "cleanup_old_data"
+      ],
+      "imports": [
+        "typing",
+        "pathlib",
+        "json",
+        "datetime",
+        "logging",
+        "re",
+        "sqlite3",
+        "dataclasses"
+      ],
+      "line_count": 702,
+      "last_modified": "2026-03-18T09:49:01.028033"
+    },
+    "hedgehog/memory/__init__.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/memory/__init__.py",
+      "purpose": "Hedgehog Memory System",
+      "classes": [],
+      "functions": [],
+      "imports": [
+        "store"
+      ],
+      "line_count": 10,
+      "last_modified": "2026-03-18T09:48:09.331390"
+    },
+    "hedgehog/safety/classifier.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/safety/classifier.py",
+      "purpose": "Safety Classifier for Hedgehog",
+      "classes": [
+        "ApprovalStatus",
+        "ActionClassification",
+        "SafetyClassifier"
+      ],
+      "functions": [
+        "get_safety_classifier",
+        "classify",
+        "classify_tool_use",
+        "request_approval",
+        "approve",
+        "reject",
+        "get_pending",
+        "clear_pending",
+        "get_all_pending",
+        "is_auto_approved",
+        "should_block",
+        "get_safety_summary"
+      ],
+      "imports": [
+        "enum",
+        "typing",
+        "hedgehog",
+        "datetime",
+        "re",
+        "logging",
+        "dataclasses"
+      ],
+      "line_count": 355,
+      "last_modified": "2026-03-18T09:49:44.833784"
+    },
+    "hedgehog/safety/__init__.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/safety/__init__.py",
+      "purpose": "Hedgehog Safety System",
+      "classes": [],
+      "functions": [],
+      "imports": [
+        "classifier"
+      ],
+      "line_count": 14,
+      "last_modified": "2026-03-18T09:49:05.592628"
+    },
+    "hedgehog/integrations/__init__.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/integrations/__init__.py",
+      "purpose": "Hedgehog Integrations",
+      "classes": [],
+      "functions": [],
+      "imports": [],
+      "line_count": 6,
+      "last_modified": "2026-03-18T09:55:08.602809"
+    },
+    "hedgehog/integrations/webhook_handler.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/integrations/webhook_handler.py",
+      "purpose": "Webhook Handler for Hedgehog",
+      "classes": [
+        "WebhookHandler"
+      ],
+      "functions": [
+        "add_hedgehog_routes",
+        "get_webhook_handler",
+        "handle_buy",
+        "handle_sell",
+        "handle_error",
+        "handle_admin_message",
+        "hedgehog_health",
+        "hedgehog_process",
+        "hedgehog_event",
+        "hedgehog_command"
+      ],
+      "imports": [
+        "typing",
+        "hedgehog",
+        "asyncio",
+        "datetime",
+        "logging",
+        "flask"
+      ],
+      "line_count": 283,
+      "last_modified": "2026-03-18T09:53:26.446028"
+    },
+    "hedgehog/integrations/telegram_handler.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/integrations/telegram_handler.py",
+      "purpose": "Telegram Handler for Hedgehog - Full Autonomous Interface",
+      "classes": [
+        "TelegramHedgehogBot",
+        "SimpleTelegramNotifier"
+      ],
+      "functions": [
+        "register_with_existing_bot",
+        "main",
+        "handle_message",
+        "start_polling",
+        "stop",
+        "run",
+        "handle_hedgehog",
+        "send"
+      ],
+      "imports": [
+        "typing",
+        "hedgehog",
+        "asyncio",
+        "sys",
+        "datetime",
+        "logging",
+        "telegram",
+        "aiohttp"
+      ],
+      "line_count": 209,
+      "last_modified": "2026-03-18T10:02:32.060411"
+    },
+    "hedgehog/integrations/cron_handler.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/integrations/cron_handler.py",
+      "purpose": "Cron Handler for Hedgehog - Scheduled Autonomous Tasks",
+      "classes": [],
+      "functions": [
+        "run_events",
+        "run_heal",
+        "run_report",
+        "run_cleanup",
+        "run_monitor",
+        "main"
+      ],
+      "imports": [
+        "hedgehog",
+        "sys",
+        "asyncio",
+        "pathlib",
+        "datetime",
+        "logging"
+      ],
+      "line_count": 164,
+      "last_modified": "2026-03-18T10:04:35.584750"
+    },
+    "hedgehog/knowledge/knowledge_base.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/knowledge/knowledge_base.py",
+      "purpose": "Hedgehog Knowledge Base Query Interface",
+      "classes": [
+        "QueryResult",
+        "HedgehogKnowledge"
+      ],
+      "functions": [
+        "get_kb",
+        "ask",
+        "wallet_count",
+        "is_running",
+        "table_rows",
+        "get_wallet_count",
+        "get_position_count",
+        "get_total_pnl",
+        "get_recent_trades_count",
+        "get_table_info",
+        "get_all_tables",
+        "get_table_columns",
+        "query_live",
+        "get_service_status",
+        "is_service_running",
+        "get_system_health",
+        "get_file_info",
+        "find_files_with_class",
+        "find_files_with_function",
+        "get_threshold",
+        "get_all_thresholds",
+        "get_git_status",
+        "answer",
+        "get_knowledge_age",
+        "get_scan_summary",
+        "refresh"
+      ],
+      "imports": [
+        "typing",
+        "os",
+        "pathlib",
+        "json",
+        "datetime",
+        "time",
+        "soulwinners_map",
+        "sqlite3",
+        "dataclasses"
+      ],
+      "line_count": 690,
+      "last_modified": "2026-03-18T13:37:26.596526"
+    },
+    "hedgehog/knowledge/__init__.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/knowledge/__init__.py",
+      "purpose": "Hedgehog Knowledge System",
+      "classes": [],
+      "functions": [],
+      "imports": [
+        "soulwinners_map",
+        "knowledge_base"
+      ],
+      "line_count": 53,
+      "last_modified": "2026-03-18T13:37:36.427503"
+    },
+    "hedgehog/knowledge/soulwinners_map.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/knowledge/soulwinners_map.py",
+      "purpose": "SoulWinners System Scanner - Hedgehog's Complete Knowledge of the House",
+      "classes": [
+        "TableInfo",
+        "ServiceInfo",
+        "PythonFileInfo",
+        "SystemState",
+        "SoulWinnersScanner",
+        "KnowledgeUpdater"
+      ],
+      "functions": [
+        "get_scanner",
+        "initialize_knowledge",
+        "get_knowledge",
+        "scan_all",
+        "load_state",
+        "get_state_age_minutes",
+        "start",
+        "stop"
+      ],
+      "imports": [
+        "typing",
+        "threading",
+        "os",
+        "pathlib",
+        "json",
+        "datetime",
+        "subprocess",
+        "time",
+        "re",
+        "hashlib",
+        "dataclasses",
+        "sqlite3",
+        "ast"
+      ],
+      "line_count": 866,
+      "last_modified": "2026-03-18T13:36:14.951494"
+    },
+    "hedgehog/monitoring/health.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/monitoring/health.py",
+      "purpose": "Health Monitor and Self-Healing for Hedgehog",
+      "classes": [
+        "ServiceStatus",
+        "ServiceHealth",
+        "HealthMonitor"
+      ],
+      "functions": [
+        "get_health_monitor",
+        "to_dict",
+        "check_service",
+        "check_all",
+        "restart_service",
+        "self_heal",
+        "check_database",
+        "check_external_apis",
+        "get_status_summary",
+        "run_full_health_check"
+      ],
+      "imports": [
+        "enum",
+        "typing",
+        "database",
+        "asyncio",
+        "pathlib",
+        "time",
+        "subprocess",
+        "datetime",
+        "logging",
+        "config",
+        "aiohttp",
+        "dataclasses"
+      ],
+      "line_count": 428,
+      "last_modified": "2026-03-18T09:51:17.889551"
+    },
+    "hedgehog/monitoring/events.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/monitoring/events.py",
+      "purpose": "Event Detection for Hedgehog",
+      "classes": [
+        "EventType",
+        "Event",
+        "EventDetector"
+      ],
+      "functions": [
+        "get_event_detector",
+        "to_dict",
+        "to_prompt",
+        "register_handler",
+        "push_event",
+        "get_pending_events",
+        "mark_processed",
+        "clear_processed",
+        "check_new_positions",
+        "check_position_exits",
+        "check_error_rate",
+        "check_service_health",
+        "check_disk_space",
+        "detect_all",
+        "create_event"
+      ],
+      "imports": [
+        "enum",
+        "typing",
+        "database",
+        "asyncio",
+        "pathlib",
+        "json",
+        "time",
+        "datetime",
+        "subprocess",
+        "logging",
+        "sqlite3",
+        "shutil",
+        "dataclasses"
+      ],
+      "line_count": 439,
+      "last_modified": "2026-03-18T09:50:34.032322"
+    },
+    "hedgehog/monitoring/__init__.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/hedgehog/monitoring/__init__.py",
+      "purpose": "Hedgehog Monitoring System",
+      "classes": [],
+      "functions": [],
+      "imports": [
+        "events",
+        "health"
+      ],
+      "line_count": 17,
+      "last_modified": "2026-03-18T09:49:49.248242"
+    },
+    "database/__init__.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/database/__init__.py",
+      "purpose": "Database module for SoulWinners",
+      "classes": [],
+      "functions": [
+        "get_connection",
+        "init_database"
+      ],
+      "imports": [
+        "sqlite3",
+        "pathlib",
+        "config"
+      ],
+      "line_count": 31,
+      "last_modified": "2026-02-24T01:08:27.940530"
+    },
+    "config/__init__.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/config/__init__.py",
+      "purpose": "",
+      "classes": [],
+      "functions": [],
+      "imports": [
+        "settings"
+      ],
+      "line_count": 2,
+      "last_modified": "2026-02-24T01:08:03.939710"
+    },
+    "config/settings.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/config/settings.py",
+      "purpose": "SoulWinners Configuration Settings",
+      "classes": [],
+      "functions": [],
+      "imports": [
+        "pathlib",
+        "os"
+      ],
+      "line_count": 131,
+      "last_modified": "2026-03-18T09:54:37.766510"
+    },
+    "test_telegram.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/test_telegram.py",
+      "purpose": "Test Telegram bot functionality",
+      "classes": [],
+      "functions": [
+        "test_telegram_bot"
+      ],
+      "imports": [
+        "sys",
+        "asyncio",
+        "config",
+        "telegram"
+      ],
+      "line_count": 123,
+      "last_modified": "2026-02-24T01:44:39.778591"
+    },
+    "send_real_alert.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/send_real_alert.py",
+      "purpose": "Send a REAL alert using actual blockchain data.",
+      "classes": [],
+      "functions": [
+        "get_token_info",
+        "send_real_alert"
+      ],
+      "imports": [
+        "sys",
+        "asyncio",
+        "bot",
+        "config",
+        "telegram",
+        "aiohttp"
+      ],
+      "line_count": 161,
+      "last_modified": "2026-02-24T09:01:35.841443"
+    },
+    "run_bot.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/run_bot.py",
+      "purpose": "SoulWinners Bot Runner",
+      "classes": [],
+      "functions": [
+        "main"
+      ],
+      "imports": [
+        "os",
+        "sys",
+        "asyncio",
+        "bot",
+        "logging"
+      ],
+      "line_count": 88,
+      "last_modified": "2026-02-24T20:03:22.848909"
+    },
+    "trading_api.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/trading_api.py",
+      "purpose": "SoulWinners Trading API Bridge",
+      "classes": [],
+      "functions": [
+        "require_auth",
+        "rate_limit",
+        "init_dex",
+        "run_async",
+        "health_check",
+        "get_status",
+        "execute_buy",
+        "execute_sell",
+        "update_strategy",
+        "get_positions",
+        "not_found",
+        "internal_error",
+        "main",
+        "decorated_function",
+        "decorator",
+        "decorated_function"
+      ],
+      "imports": [
+        "typing",
+        "trader",
+        "os",
+        "secrets",
+        "asyncio",
+        "sys",
+        "pathlib",
+        "dotenv",
+        "datetime",
+        "flask_cors",
+        "logging",
+        "functools",
+        "flask"
+      ],
+      "line_count": 569,
+      "last_modified": "2026-02-27T11:13:53.258919"
+    },
+    "run_monitor.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/run_monitor.py",
+      "purpose": "Run the Real-Time Monitor",
+      "classes": [],
+      "functions": [
+        "main"
+      ],
+      "imports": [
+        "sys",
+        "asyncio",
+        "bot",
+        "logging"
+      ],
+      "line_count": 36,
+      "last_modified": "2026-02-24T13:43:28.467245"
+    },
+    "run_insider.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/run_insider.py",
+      "purpose": "Run Insider Detection Pipeline",
+      "classes": [],
+      "functions": [
+        "run_pipeline",
+        "scan_fresh_launches",
+        "analyze_wallet",
+        "find_connections",
+        "show_insiders",
+        "show_clusters",
+        "main"
+      ],
+      "imports": [
+        "database",
+        "pipeline",
+        "sys",
+        "asyncio",
+        "datetime",
+        "logging",
+        "collectors",
+        "argparse"
+      ],
+      "line_count": 207,
+      "last_modified": "2026-03-08T02:00:08.189326"
+    },
+    "test_vger.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/test_vger.py",
+      "purpose": "Test V'ger Bot Setup",
+      "classes": [],
+      "functions": [
+        "test_environment",
+        "test_database",
+        "test_imports",
+        "test_bot_token",
+        "main"
+      ],
+      "imports": [
+        "os",
+        "pathlib",
+        "sqlite3",
+        "dotenv",
+        "requests"
+      ],
+      "line_count": 254,
+      "last_modified": "2026-02-27T10:20:31.155231"
+    },
+    "v_ger_bot.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/v_ger_bot.py",
+      "purpose": "V'ger Control Bot - Telegram interface for OpenClaw Auto-Trader",
+      "classes": [],
+      "functions": [
+        "is_admin",
+        "format_duration",
+        "get_sol_price",
+        "update_sol_price",
+        "cmd_start",
+        "cmd_help",
+        "cmd_status",
+        "cmd_settings",
+        "cmd_set",
+        "cmd_portfolio",
+        "cmd_balance",
+        "cmd_history",
+        "cmd_report",
+        "cmd_exit",
+        "handle_exit_callback",
+        "cmd_buy",
+        "error_handler",
+        "main"
+      ],
+      "imports": [
+        "typing",
+        "trader",
+        "os",
+        "asyncio",
+        "pathlib",
+        "dotenv",
+        "datetime",
+        "logging",
+        "telegram",
+        "sqlite3"
+      ],
+      "line_count": 712,
+      "last_modified": "2026-02-27T10:17:40.077988"
+    },
+    "restore_from_metrics.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/restore_from_metrics.py",
+      "purpose": "Restore wallets from wallet_metrics table to qualified_wallets.",
+      "classes": [],
+      "functions": [
+        "restore_from_metrics"
+      ],
+      "imports": [
+        "datetime",
+        "database"
+      ],
+      "line_count": 100,
+      "last_modified": "2026-02-25T10:11:03.293428"
+    },
+    "test_trading_api.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/test_trading_api.py",
+      "purpose": "Test Trading API Bridge",
+      "classes": [
+        "Colors"
+      ],
+      "functions": [
+        "print_header",
+        "print_success",
+        "print_error",
+        "print_warning",
+        "test_health",
+        "test_auth",
+        "test_status",
+        "test_positions",
+        "test_rate_limit",
+        "main"
+      ],
+      "imports": [
+        "sys",
+        "requests",
+        "os",
+        "dotenv"
+      ],
+      "line_count": 288,
+      "last_modified": "2026-02-27T11:16:55.277985"
+    },
+    "ebhook_server.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/ebhook_server.py",
+      "purpose": "",
+      "classes": [],
+      "functions": [],
+      "imports": [],
+      "line_count": 1,
+      "last_modified": "2026-03-15T13:44:04.881670"
+    },
+    "restore_wallets.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/restore_wallets.py",
+      "purpose": "Restore wallets from backup CSV to qualified_wallets table.",
+      "classes": [],
+      "functions": [
+        "restore_wallets"
+      ],
+      "imports": [
+        "datetime",
+        "pandas",
+        "database"
+      ],
+      "line_count": 80,
+      "last_modified": "2026-02-25T10:09:38.624434"
+    },
+    "run_pipeline.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/run_pipeline.py",
+      "purpose": "SoulWinners Pipeline Runner",
+      "classes": [],
+      "functions": [
+        "is_cron_enabled",
+        "run_pipeline",
+        "main"
+      ],
+      "imports": [
+        "database",
+        "pipeline",
+        "sys",
+        "asyncio",
+        "datetime",
+        "config",
+        "logging",
+        "argparse"
+      ],
+      "line_count": 164,
+      "last_modified": "2026-03-08T01:34:38.269051"
+    },
+    "run_openclaw.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/run_openclaw.py",
+      "purpose": "OpenClaw Auto-Trader Runner",
+      "classes": [],
+      "functions": [
+        "check_env",
+        "show_status",
+        "check_balance",
+        "run_bot",
+        "main"
+      ],
+      "imports": [
+        "trader",
+        "os",
+        "sys",
+        "asyncio",
+        "dotenv",
+        "logging",
+        "argparse"
+      ],
+      "line_count": 153,
+      "last_modified": "2026-02-25T14:48:37.978468"
+    },
+    "test_alerts_final.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/test_alerts_final.py",
+      "purpose": "Final test - Send both BUY and SELL alerts with real token data",
+      "classes": [],
+      "functions": [
+        "get_trending_tokens",
+        "get_token_details",
+        "format_wallet",
+        "send_final_tests"
+      ],
+      "imports": [
+        "sys",
+        "asyncio",
+        "config",
+        "telegram",
+        "aiohttp"
+      ],
+      "line_count": 179,
+      "last_modified": "2026-02-24T01:48:34.450984"
+    },
+    "webhook_server.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/webhook_server.py",
+      "purpose": "Helius Webhook Server for Elite Wallet Tracking",
+      "classes": [],
+      "functions": [
+        "load_elite_wallets",
+        "is_elite_wallet",
+        "check_duplicate_position",
+        "parse_helius_swap",
+        "fetch_token_info",
+        "fetch_token_info_sync",
+        "process_buy",
+        "process_sell",
+        "update_elite_holding_counts",
+        "helius_webhook",
+        "health_check",
+        "get_stats"
+      ],
+      "imports": [
+        "requests",
+        "typing",
+        "database",
+        "asyncio",
+        "sys",
+        "pathlib",
+        "bot",
+        "json",
+        "datetime",
+        "time",
+        "logging",
+        "argparse",
+        "aiohttp",
+        "flask"
+      ],
+      "line_count": 758,
+      "last_modified": "2026-03-16T00:53:51.138033"
+    },
+    "main.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/main.py",
+      "purpose": "SoulWinners - Solana Smart Money Discovery System",
+      "classes": [
+        "SoulWinnersSystem"
+      ],
+      "functions": [
+        "main",
+        "start",
+        "stop",
+        "signal_handler"
+      ],
+      "imports": [
+        "typing",
+        "database",
+        "signal",
+        "pipeline",
+        "sys",
+        "asyncio",
+        "bot",
+        "datetime",
+        "config",
+        "logging"
+      ],
+      "line_count": 286,
+      "last_modified": "2026-02-24T13:07:06.114478"
+    },
+    "test_telegram_real.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/test_telegram_real.py",
+      "purpose": "Test Telegram bot with REAL token data from DexScreener",
+      "classes": [],
+      "functions": [
+        "get_real_token_data",
+        "get_token_details",
+        "format_wallet_address",
+        "test_real_alert"
+      ],
+      "imports": [
+        "sys",
+        "asyncio",
+        "config",
+        "telegram",
+        "aiohttp"
+      ],
+      "line_count": 167,
+      "last_modified": "2026-02-24T01:46:57.486420"
+    },
+    "test_pipeline.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/test_pipeline.py",
+      "purpose": "Quick pipeline test with minimal data collection",
+      "classes": [],
+      "functions": [
+        "test_with_sample_data"
+      ],
+      "imports": [
+        "database",
+        "pipeline",
+        "sys",
+        "asyncio",
+        "logging"
+      ],
+      "line_count": 115,
+      "last_modified": "2026-02-24T01:39:04.863394"
+    },
+    "test_real_collection.py": {
+      "path": "/Users/APPLE/Desktop/Soulwinners/test_real_collection.py",
+      "purpose": "Test real data collection with small sample",
+      "classes": [],
+      "functions": [
+        "test_real_collection"
+      ],
+      "imports": [
+        "pipeline",
+        "sys",
+        "asyncio",
+        "logging",
+        "collectors"
+      ],
+      "line_count": 96,
+      "last_modified": "2026-02-24T01:39:35.691829"
+    }
+  },
+  "cron_jobs": [
+    {
+      "schedule": "*/30 * * * *",
+      "command": "/Users/APPLE/Desktop/Soulwinners/cron_pipeline.sh",
+      "source": "crontab"
+    },
+    {
+      "schedule": "0 0 * * *",
+      "command": "cd /root/Soulwinners && ./venv/bin/python3 scripts/daily_fee_transfer.py >> logs/fees.log 2>&1",
+      "source": "crontab"
+    },
+    {
+      "schedule": "@reboot cd /root/Soulwinners && source",
+      "command": "venv/bin/activate && nohup python webhook_server.py > logs/webhook_server.log 2>&1 &",
+      "source": "crontab"
+    },
+    {
+      "schedule": "see script",
+      "command": "cron_pipeline.sh",
+      "source": "script",
+      "content_preview": "#!/bin/bash\ncd /Users/APPLE/Desktop/Soulwinners\n/usr/bin/python3 run_pipeline.py \\\n    --threshold-sol 10 \\\n    --threshold-trades 15 \\\n    --threshold-win 60 \\\n    --threshold-roi 50 \\\n    >> logs/cr"
+    },
+    {
+      "schedule": "see script",
+      "command": "setup_cron.sh",
+      "source": "script",
+      "content_preview": "#!/bin/bash\n# Setup 24-hour auto-discovery cron job for SoulWinners\n# Run this script once to install the cron job\n\nPROJECT_DIR=\"/Users/APPLE/Desktop/Soulwinners\"\nPYTHON=\"/usr/bin/python3\"\nLOG_DIR=\"$P"
+    }
+  ],
+  "api_keys": {
+    "helius_keys": "8 keys configured",
+    "anthropic": "configured",
+    "telegram_hedgehog": "configured"
+  },
+  "thresholds": {
+    "min_sol_balance": 10.0,
+    "min_win_rate": 0.6,
+    "elite_percentile": 0.85
+  },
+  "current_branch": "main",
+  "last_commit": "897fd45 Hedgehog v3.0 - Truly autonomous AI system operator",
+  "uncommitted_changes": [
+    "M config/settings.py",
+    "M hedgehog/__init__.py",
+    "M hedgehog/run_hedgehog.py",
+    "M hedgehog/tools/__init__.py",
+    "?? hedgehog/knowledge/",
+    "?? hedgehog/tools/smart_tools.py"
+  ],
+  "disk_usage_percent": 24.0,
+  "memory_usage_percent": 59.5,
+  "cpu_usage_percent": 16.31
+}

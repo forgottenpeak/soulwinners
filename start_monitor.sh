@@ -1,7 +1,9 @@
 #!/bin/bash
 # Start the SoulWinners Real-Time Monitor
+# Auto-detect project directory (works on LOCAL and VPS)
 
-cd /Users/APPLE/Desktop/Soulwinners
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 # Kill any existing monitors
 pkill -f "python3 run_monitor.py" 2>/dev/null

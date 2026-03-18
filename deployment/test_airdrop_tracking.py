@@ -5,10 +5,11 @@ Verifies airdrop detection and tracking functionality
 """
 import asyncio
 import sys
+import os
 from datetime import datetime, timedelta
 
-# Add parent directory to path
-sys.path.insert(0, '/Users/APPLE/Desktop/Soulwinners')
+# Add parent directory to path (works on LOCAL and VPS)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from collectors.launch_tracker import AirdropTracker, LaunchTracker
 from database import get_connection

@@ -12,7 +12,8 @@ echo "========================================"
 REMOTE_USER="root"
 REMOTE_HOST="80.240.22.200"
 REMOTE_PATH="/root/Soulwinners"
-LOCAL_PATH="/Users/APPLE/Desktop/Soulwinners"
+# Auto-detect local path (works anywhere)
+LOCAL_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo ""
 echo "[1/6] Syncing files to server..."

@@ -22,8 +22,8 @@ import threading
 import time
 
 
-# Paths
-BASE_DIR = Path("/Users/APPLE/Desktop/Soulwinners")
+# Paths - Auto-detect runtime location (works on LOCAL and VPS)
+BASE_DIR = Path(__file__).resolve().parent.parent.parent  # hedgehog/knowledge/soulwinners_map.py -> Soulwinners/
 KNOWLEDGE_DIR = BASE_DIR / "hedgehog" / "knowledge"
 STATE_FILE = KNOWLEDGE_DIR / "system_state.json"
 MAIN_DB = BASE_DIR / "data" / "soulwinners.db"

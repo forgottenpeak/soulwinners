@@ -28,13 +28,13 @@ class AIModelConfig:
 class HedgehogConfig:
     """Configuration for Hedgehog AI Brain - Hybrid Setup."""
 
-    # Paths
-    base_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent)
-    data_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent / "data")
-    database_path: Path = field(default_factory=lambda: Path(__file__).parent.parent / "data" / "soulwinners.db")
-    memory_path: Path = field(default_factory=lambda: Path(__file__).parent / "memory" / "hedgehog_memory.db")
-    actions_log_path: Path = field(default_factory=lambda: Path(__file__).parent / "memory" / "actions.json")
-    logs_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent / "logs")
+    # Paths - Auto-detect runtime location (works on LOCAL and VPS)
+    base_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent)
+    data_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data")
+    database_path: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "soulwinners.db")
+    memory_path: Path = field(default_factory=lambda: Path(__file__).resolve().parent / "memory" / "hedgehog_memory.db")
+    actions_log_path: Path = field(default_factory=lambda: Path(__file__).resolve().parent / "memory" / "actions.json")
+    logs_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "logs")
 
     # =========================================================================
     # TELEGRAM CONFIG

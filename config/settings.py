@@ -109,3 +109,22 @@ REFRESH_HOUR_UTC = 0              # Midnight UTC refresh
 # API Rate Limits (with 4-key rotation = 4x capacity)
 HELIUS_RATE_LIMIT = 3             # Concurrent requests per collector
 DEXSCREENER_RATE_LIMIT = 3        # Concurrent requests
+
+# =============================================================================
+# ANTHROPIC (Claude) API - For AI Brain (Hedgehog)
+# =============================================================================
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
+# AI Cost Control
+AI_BUDGET_FREE_USER = 1.00        # $1/month for free users
+AI_BUDGET_PAID_USER = 10.00       # $10/month for paid users
+CLAUDE_INPUT_PRICE = 3.00         # $/million tokens (Sonnet)
+CLAUDE_OUTPUT_PRICE = 15.00       # $/million tokens (Sonnet)
+CLAUDE_CACHE_PRICE = 0.30         # $/million cached tokens
+
+# =============================================================================
+# HEDGEHOG AI BRAIN CONFIG
+# =============================================================================
+HEDGEHOG_ENABLED = os.getenv("HEDGEHOG_ENABLED", "true").lower() == "true"
+HEDGEHOG_MAX_DAILY_CALLS = 100    # Max AI API calls per day
+HEDGEHOG_MAX_MONTHLY_COST = 50.00 # Max monthly AI cost in USD

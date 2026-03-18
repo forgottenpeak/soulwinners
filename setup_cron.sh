@@ -1,19 +1,24 @@
 #!/bin/bash
 # Setup 24-hour auto-discovery cron job for SoulWinners
 # Run this script once to install the cron job
+# Auto-detect project directory (works on LOCAL and VPS)
 
-PROJECT_DIR="/Users/APPLE/Desktop/Soulwinners"
-PYTHON="/usr/bin/python3"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR"
+PYTHON="python3"
 LOG_DIR="$PROJECT_DIR/logs"
 
 # Create logs directory if not exists
 mkdir -p "$LOG_DIR"
 
-# Create the pipeline script wrapper
+# Create the pipeline script wrapper (portable version)
 cat > "$PROJECT_DIR/cron_pipeline.sh" << 'EOF'
 #!/bin/bash
-cd /Users/APPLE/Desktop/Soulwinners
-/usr/bin/python3 run_pipeline.py \
+# Auto-detect project directory (works on LOCAL and VPS)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+python3 run_pipeline.py \
     --threshold-sol 10 \
     --threshold-trades 15 \
     --threshold-win 60 \
@@ -43,7 +48,7 @@ if crontab -l 2>/dev/null | grep -q "cron_pipeline.sh"; then
 else
     # Add to crontab
     (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
-    echo "✅ Cron job added!"
+    echo "Cron job added!"
 fi
 
 echo ""

@@ -445,3 +445,287 @@ class HealthCheckTool(Tool):
             health["services"]["dexscreener"] = {"status": "unreachable", "error": str(e)}
 
         return ToolResult(success=True, data=health)
+
+
+class CodebaseSearchTool(Tool):
+    """Search the codebase to understand how things work."""
+
+    name = "codebase_search"
+    description = """Search codebase for functions, classes, or patterns.
+    Use this to understand how the system works before taking action."""
+
+    safety_level = SafetyLevel.SAFE
+    parameters_schema = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Search term (function name, class, error message, etc.)"
+            },
+            "file_type": {
+                "type": "string",
+                "description": "File extension filter (py, js, sql, etc.)",
+                "default": "py"
+            },
+            "context_lines": {
+                "type": "integer",
+                "description": "Lines of context around matches (default 3)",
+                "default": 3
+            }
+        },
+        "required": ["query"]
+    }
+
+    async def execute(
+        self, query: str, file_type: str = "py", context_lines: int = 3
+    ) -> ToolResult:
+        """Search codebase for a pattern."""
+        try:
+            base_dir = Path(__file__).parent.parent.parent
+
+            # Use grep for search
+            result = subprocess.run(
+                [
+                    "grep", "-rn", f"--include=*.{file_type}",
+                    f"-C{context_lines}", query, str(base_dir)
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            matches = []
+            current_file = None
+            current_match = []
+
+            for line in result.stdout.split('\n')[:100]:  # Limit output
+                if line.startswith(str(base_dir)):
+                    if current_match:
+                        matches.append({
+                            "file": current_file,
+                            "content": "\n".join(current_match)
+                        })
+                    parts = line.split(':', 2)
+                    if len(parts) >= 3:
+                        current_file = parts[0].replace(str(base_dir) + "/", "")
+                        current_match = [f"L{parts[1]}: {parts[2]}"]
+                elif line.strip() and current_match:
+                    current_match.append(line)
+
+            if current_match:
+                matches.append({
+                    "file": current_file,
+                    "content": "\n".join(current_match)
+                })
+
+            return ToolResult(
+                success=True,
+                data={
+                    "query": query,
+                    "matches": matches[:20],  # Limit to 20 matches
+                    "total_matches": len(matches),
+                }
+            )
+
+        except subprocess.TimeoutExpired:
+            return ToolResult(success=False, error="Search timed out")
+        except Exception as e:
+            return ToolResult(success=False, error=str(e))
+
+
+class GitHistoryTool(Tool):
+    """Check recent git changes to understand what changed."""
+
+    name = "git_history"
+    description = """Check recent git commits and changes.
+    Useful for debugging: 'what changed recently that might have broken X?'"""
+
+    safety_level = SafetyLevel.SAFE
+    parameters_schema = {
+        "type": "object",
+        "properties": {
+            "limit": {
+                "type": "integer",
+                "description": "Number of commits to show (default 10)",
+                "default": 10
+            },
+            "file_path": {
+                "type": "string",
+                "description": "Filter to specific file/directory (optional)"
+            },
+            "show_diff": {
+                "type": "boolean",
+                "description": "Include file changes in output (default False)",
+                "default": False
+            }
+        },
+        "required": []
+    }
+
+    async def execute(
+        self, limit: int = 10, file_path: str = None, show_diff: bool = False
+    ) -> ToolResult:
+        """Get recent git history."""
+        try:
+            base_dir = Path(__file__).parent.parent.parent
+
+            # Get recent commits
+            cmd = [
+                "git", "log", f"-{limit}",
+                "--pretty=format:%h|%s|%ar|%an",
+            ]
+            if file_path:
+                cmd.append("--")
+                cmd.append(file_path)
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                cwd=str(base_dir)
+            )
+
+            commits = []
+            for line in result.stdout.split('\n'):
+                if '|' in line:
+                    parts = line.split('|', 3)
+                    if len(parts) >= 4:
+                        commits.append({
+                            "hash": parts[0],
+                            "message": parts[1][:80],
+                            "time": parts[2],
+                            "author": parts[3],
+                        })
+
+            # Get changed files if requested
+            changes = []
+            if show_diff and commits:
+                result = subprocess.run(
+                    ["git", "diff", "--name-status", f"HEAD~{min(limit, 5)}..HEAD"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    cwd=str(base_dir)
+                )
+                for line in result.stdout.split('\n'):
+                    if line.strip():
+                        parts = line.split('\t', 1)
+                        if len(parts) == 2:
+                            changes.append({
+                                "status": {"M": "modified", "A": "added", "D": "deleted"}.get(parts[0], parts[0]),
+                                "file": parts[1],
+                            })
+
+            # Get current branch
+            branch_result = subprocess.run(
+                ["git", "branch", "--show-current"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                cwd=str(base_dir)
+            )
+            current_branch = branch_result.stdout.strip()
+
+            return ToolResult(
+                success=True,
+                data={
+                    "branch": current_branch,
+                    "recent_commits": commits,
+                    "changed_files": changes if show_diff else None,
+                }
+            )
+
+        except subprocess.TimeoutExpired:
+            return ToolResult(success=False, error="Git command timed out")
+        except Exception as e:
+            return ToolResult(success=False, error=str(e))
+
+
+class AutoHealTool(Tool):
+    """Proactively check and fix common issues."""
+
+    name = "auto_heal"
+    description = """Automatically diagnose and fix common issues.
+    Safe fixes are applied immediately. Reports what was fixed."""
+
+    safety_level = SafetyLevel.SAFE
+    parameters_schema = {
+        "type": "object",
+        "properties": {
+            "check_only": {
+                "type": "boolean",
+                "description": "Only diagnose, don't fix (default False)",
+                "default": False
+            }
+        },
+        "required": []
+    }
+
+    async def execute(self, check_only: bool = False) -> ToolResult:
+        """Run auto-healing checks."""
+        issues = []
+        fixes = []
+
+        base_dir = Path(__file__).parent.parent.parent
+
+        # Check 1: Database connectivity
+        try:
+            from database import get_connection
+            conn = get_connection()
+            conn.execute("SELECT 1")
+            conn.close()
+        except Exception as e:
+            issues.append(f"Database: {e}")
+
+        # Check 2: Log files growing too large
+        logs_dir = base_dir / "logs"
+        if logs_dir.exists():
+            for log_file in logs_dir.glob("*.log"):
+                size_mb = log_file.stat().st_size / (1024 * 1024)
+                if size_mb > 100:
+                    issues.append(f"Log file too large: {log_file.name} ({size_mb:.0f}MB)")
+                    if not check_only:
+                        # Truncate to last 10000 lines
+                        try:
+                            with open(log_file, 'r') as f:
+                                lines = f.readlines()
+                            with open(log_file, 'w') as f:
+                                f.writelines(lines[-10000:])
+                            fixes.append(f"Truncated {log_file.name}")
+                        except Exception:
+                            pass
+
+        # Check 3: Stale PID files
+        for pid_file in base_dir.glob("*.pid"):
+            try:
+                pid = int(pid_file.read_text().strip())
+                # Check if process exists
+                os.kill(pid, 0)
+            except (ValueError, OSError):
+                issues.append(f"Stale PID file: {pid_file.name}")
+                if not check_only:
+                    pid_file.unlink()
+                    fixes.append(f"Removed stale {pid_file.name}")
+
+        # Check 4: Temp files older than 1 day
+        tmp_dir = base_dir / "tmp"
+        if tmp_dir.exists():
+            import time
+            now = time.time()
+            for tmp_file in tmp_dir.glob("*"):
+                if now - tmp_file.stat().st_mtime > 86400:
+                    issues.append(f"Old temp file: {tmp_file.name}")
+                    if not check_only:
+                        tmp_file.unlink()
+                        fixes.append(f"Cleaned {tmp_file.name}")
+
+        return ToolResult(
+            success=True,
+            data={
+                "issues_found": len(issues),
+                "issues": issues,
+                "fixes_applied": fixes if not check_only else [],
+                "status": "healthy" if not issues else "needs_attention",
+            }
+        )

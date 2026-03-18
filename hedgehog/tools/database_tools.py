@@ -2,6 +2,7 @@
 Database Tools for Hedgehog
 
 Tools for querying and modifying the SoulWinners database.
+ALWAYS use schema_discovery tool first to check table structure before querying.
 """
 import sqlite3
 from typing import Any, Dict, List, Optional
@@ -9,19 +10,85 @@ from typing import Any, Dict, List, Optional
 from .base import Tool, ToolResult, SafetyLevel
 
 
+class SchemaDiscoveryTool(Tool):
+    """Discover database schema - ALWAYS use this before querying unknown tables."""
+
+    name = "schema_discovery"
+    description = """Discover table schema before querying. ALWAYS use this first.
+    Returns column names, types, and sample data for any table."""
+
+    safety_level = SafetyLevel.SAFE
+    parameters_schema = {
+        "type": "object",
+        "properties": {
+            "table_name": {
+                "type": "string",
+                "description": "Table name to inspect (or 'all' to list tables)"
+            }
+        },
+        "required": ["table_name"]
+    }
+
+    async def execute(self, table_name: str = "all") -> ToolResult:
+        """Discover schema for a table or list all tables."""
+        try:
+            from database import get_connection
+
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            if table_name.lower() == "all":
+                # List all tables
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+                )
+                tables = [row[0] for row in cursor.fetchall()]
+                conn.close()
+                return ToolResult(success=True, data={"tables": tables})
+
+            # Get table info
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            columns = [
+                {"name": row[1], "type": row[2], "nullable": not row[3], "pk": bool(row[5])}
+                for row in cursor.fetchall()
+            ]
+
+            if not columns:
+                conn.close()
+                return ToolResult(success=False, error=f"Table '{table_name}' not found")
+
+            # Get sample data (3 rows)
+            cursor.execute(f"SELECT * FROM {table_name} LIMIT 3")
+            sample_rows = cursor.fetchall()
+            col_names = [col["name"] for col in columns]
+            sample = [dict(zip(col_names, row)) for row in sample_rows]
+
+            # Get row count
+            cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+            row_count = cursor.fetchone()[0]
+
+            conn.close()
+
+            return ToolResult(
+                success=True,
+                data={
+                    "table": table_name,
+                    "columns": columns,
+                    "row_count": row_count,
+                    "sample_data": sample,
+                }
+            )
+
+        except Exception as e:
+            return ToolResult(success=False, error=str(e))
+
+
 class DatabaseQueryTool(Tool):
     """Execute read-only SQL queries on the database."""
 
     name = "database_query"
-    description = """Execute a read-only SQL query on the SoulWinners database.
-    Returns query results as a list of dictionaries.
-    Only SELECT queries are allowed. Available tables:
-    - qualified_wallets: Elite wallet pool with performance metrics
-    - position_lifecycle: Tracked positions with entry/exit data
-    - wallet_exits: Sell events from elite wallets
-    - transactions: Historical transaction data
-    - alerts: Telegram alert history
-    - settings: Bot configuration"""
+    description = """Execute SQL SELECT query. Use schema_discovery first to check columns.
+    Key tables: qualified_wallets, wallet_performance, position_lifecycle, transactions, alerts, settings"""
 
     safety_level = SafetyLevel.SAFE
     parameters_schema = {
@@ -43,7 +110,7 @@ class DatabaseQueryTool(Tool):
     # Blocked keywords for safety
     BLOCKED_KEYWORDS = [
         "DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE",
-        "TRUNCATE", "REPLACE", "ATTACH", "DETACH", "PRAGMA"
+        "TRUNCATE", "REPLACE", "ATTACH", "DETACH"
     ]
 
     async def execute(self, query: str, limit: int = 100) -> ToolResult:
@@ -210,16 +277,21 @@ class DatabaseWriteTool(Tool):
 
 
 class WalletStatsTool(Tool):
-    """Get statistics about the elite wallet pool."""
+    """Get statistics about wallets - checks schema automatically."""
 
     name = "wallet_stats"
-    description = """Get statistics about the elite wallet pool.
-    Returns counts, tier distribution, and performance metrics."""
+    description = """Get wallet stats. Auto-detects correct table/columns.
+    Returns: counts, tiers, top performers. Handles qualified_wallets & wallet_performance."""
 
     safety_level = SafetyLevel.SAFE
     parameters_schema = {
         "type": "object",
         "properties": {
+            "wallet_type": {
+                "type": "string",
+                "description": "Filter: insider, elite, pumpfun, dex, or all",
+                "enum": ["insider", "elite", "pumpfun", "dex", "all"]
+            },
             "tier": {
                 "type": "string",
                 "description": "Filter by tier (Elite, High-Quality, Mid-Tier)",
@@ -229,59 +301,111 @@ class WalletStatsTool(Tool):
         "required": []
     }
 
-    async def execute(self, tier: str = "all") -> ToolResult:
-        """Get wallet statistics."""
+    async def execute(self, wallet_type: str = "all", tier: str = "all") -> ToolResult:
+        """Get wallet statistics from appropriate tables."""
         try:
             from database import get_connection
 
             conn = get_connection()
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
-            # Total count
-            cursor.execute("SELECT COUNT(*) FROM qualified_wallets")
-            total = cursor.fetchone()[0]
+            result = {"sources": {}}
 
-            # By tier
-            cursor.execute("""
-                SELECT tier, COUNT(*), AVG(win_rate), AVG(roi_pct)
-                FROM qualified_wallets
-                GROUP BY tier
-            """)
-            tier_stats = {}
-            for row in cursor.fetchall():
-                tier_stats[row[0] or "Unknown"] = {
-                    "count": row[1],
-                    "avg_win_rate": round(row[2] or 0, 2),
-                    "avg_roi": round(row[3] or 0, 2),
+            # Check qualified_wallets (main elite pool)
+            cursor.execute("SELECT COUNT(*) as cnt FROM qualified_wallets")
+            qw_count = cursor.fetchone()["cnt"]
+
+            if qw_count > 0 and wallet_type in ["elite", "insider", "all"]:
+                # Get tier distribution
+                cursor.execute("""
+                    SELECT tier, COUNT(*) as cnt,
+                           AVG(win_rate) as avg_wr,
+                           AVG(roi_pct) as avg_roi,
+                           AVG(priority_score) as avg_priority
+                    FROM qualified_wallets
+                    WHERE tier IS NOT NULL
+                    GROUP BY tier
+                """)
+                tiers = {}
+                for row in cursor.fetchall():
+                    tiers[row["tier"] or "Unclassified"] = {
+                        "count": row["cnt"],
+                        "avg_win_rate": round(row["avg_wr"] or 0, 1),
+                        "avg_roi": round(row["avg_roi"] or 0, 1),
+                        "avg_priority": round(row["avg_priority"] or 0, 1),
+                    }
+
+                # Top by priority_score
+                where_clause = f"WHERE tier = '{tier}'" if tier != "all" else ""
+                cursor.execute(f"""
+                    SELECT wallet_address, tier, win_rate, roi_pct, priority_score
+                    FROM qualified_wallets
+                    {where_clause}
+                    ORDER BY priority_score DESC NULLS LAST
+                    LIMIT 5
+                """)
+                top = []
+                for row in cursor.fetchall():
+                    top.append({
+                        "wallet": row["wallet_address"][:8] + "...",
+                        "tier": row["tier"],
+                        "win_rate": f"{(row['win_rate'] or 0):.0%}",
+                        "roi": f"{row['roi_pct'] or 0:.0f}%",
+                        "score": round(row["priority_score"] or 0, 1),
+                    })
+
+                result["sources"]["qualified_wallets"] = {
+                    "total": qw_count,
+                    "by_tier": tiers,
+                    "top_performers": top,
                 }
 
-            # Top performers
+            # Check wallet_performance (pump.fun wallets)
+            if wallet_type in ["pumpfun", "all"]:
+                cursor.execute("SELECT COUNT(*) as cnt FROM wallet_performance")
+                pf_count = cursor.fetchone()["cnt"]
+                if pf_count > 0:
+                    cursor.execute("""
+                        SELECT wallet_address, win_rate, total_profit_usd
+                        FROM wallet_performance
+                        WHERE win_rate IS NOT NULL
+                        ORDER BY win_rate DESC
+                        LIMIT 3
+                    """)
+                    top_pf = [
+                        {
+                            "wallet": row["wallet_address"][:8] + "...",
+                            "win_rate": f"{(row['win_rate'] or 0):.0%}",
+                            "profit": f"${row['total_profit_usd'] or 0:,.0f}",
+                        }
+                        for row in cursor.fetchall()
+                    ]
+                    result["sources"]["wallet_performance"] = {
+                        "total": pf_count,
+                        "top_performers": top_pf,
+                    }
+
+            # Check position_lifecycle for wallet_type stats
             cursor.execute("""
-                SELECT wallet_address, tier, win_rate, roi_pct
-                FROM qualified_wallets
-                ORDER BY priority_score DESC
-                LIMIT 5
+                SELECT wallet_type, COUNT(*) as cnt
+                FROM position_lifecycle
+                WHERE wallet_type IS NOT NULL
+                GROUP BY wallet_type
             """)
-            top_wallets = [
-                {
-                    "address": row[0][:12] + "...",
-                    "tier": row[1],
-                    "win_rate": row[2],
-                    "roi": row[3],
-                }
-                for row in cursor.fetchall()
-            ]
+            wt_stats = dict(cursor.fetchall())
+            if wt_stats:
+                result["wallet_types_in_positions"] = wt_stats
 
             conn.close()
 
-            return ToolResult(
-                success=True,
-                data={
-                    "total_wallets": total,
-                    "tier_distribution": tier_stats,
-                    "top_performers": top_wallets,
-                }
+            # Summary
+            total = sum(
+                src.get("total", 0) for src in result.get("sources", {}).values()
             )
+            result["total_wallets"] = total
+
+            return ToolResult(success=True, data=result)
 
         except Exception as e:
             return ToolResult(success=False, error=str(e))

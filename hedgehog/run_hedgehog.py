@@ -3,8 +3,11 @@
 Hedgehog Runner - Full Autonomous AI Brain
 
 Usage:
-    # Run Telegram bot (main mode)
+    # Run Telegram bot with proactive monitoring (main mode)
     python -m hedgehog bot
+
+    # Run autonomous monitoring only (no Telegram, checks every 5 min)
+    python -m hedgehog monitor
 
     # Run event processor (cron mode)
     python -m hedgehog process
@@ -57,22 +60,29 @@ def print_banner():
     """Print startup banner."""
     print("""
     ╔═══════════════════════════════════════════╗
-    ║  🦔 HEDGEHOG AI BRAIN v2.0                ║
+    ║  🦔 HEDGEHOG AI BRAIN v3.0                ║
     ║  ─────────────────────────────────────    ║
-    ║  Hybrid: GPT-4o-mini + Claude Sonnet 4    ║
-    ║  Cost Target: $3-5/month                  ║
+    ║  AUTONOMOUS SYSTEM OPERATOR               ║
+    ║  Schema-aware • Self-healing • Proactive  ║
     ╚═══════════════════════════════════════════╝
     """)
 
 
 async def run_telegram_bot():
-    """Run Telegram bot (main mode)."""
+    """Run Telegram bot (main mode) with proactive monitoring."""
     from hedgehog.integrations.telegram_handler import TelegramHedgehogBot
 
     logger.info("Starting Hedgehog Telegram bot...")
 
+    brain = get_brain()
     bot = TelegramHedgehogBot()
+
+    # Start bot polling
     await bot.start_polling()
+
+    # Start proactive monitoring as background task (every 5 min)
+    monitor_task = asyncio.create_task(brain.run_proactive_monitoring())
+    logger.info("Proactive monitoring started (5 min interval)")
 
     # Keep running
     try:
@@ -81,7 +91,27 @@ async def run_telegram_bot():
     except KeyboardInterrupt:
         logger.info("Shutting down...")
     finally:
+        monitor_task.cancel()
         await bot.stop()
+
+
+async def run_monitor():
+    """Run autonomous monitoring only (no Telegram bot)."""
+    brain = get_brain()
+
+    logger.info("Starting autonomous monitoring mode...")
+    logger.info("Checking logs and health every 5 minutes...")
+
+    try:
+        # Initial check
+        actions = await brain.run_autonomous_check()
+        if actions:
+            logger.info(f"Initial check: {len(actions)} actions taken")
+
+        # Continuous monitoring
+        await brain.run_proactive_monitoring()
+    except KeyboardInterrupt:
+        logger.info("Monitoring stopped.")
 
 
 async def run_process():
@@ -288,7 +318,7 @@ def main():
         "mode",
         nargs="?",
         default="status",
-        choices=["bot", "process", "health", "report", "interactive", "command", "status"],
+        choices=["bot", "monitor", "process", "health", "report", "interactive", "command", "status"],
         help="Mode to run"
     )
     parser.add_argument(
@@ -318,6 +348,9 @@ def main():
     # Run appropriate mode
     if args.mode == "bot":
         asyncio.run(run_telegram_bot())
+
+    elif args.mode == "monitor":
+        asyncio.run(run_monitor())
 
     elif args.mode == "process":
         count = asyncio.run(run_process())

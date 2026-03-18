@@ -221,10 +221,12 @@ class HedgehogBrain:
         from .tools.database_tools import (
             DatabaseQueryTool, DatabaseWriteTool,
             WalletStatsTool, PositionStatsTool,
+            SchemaDiscoveryTool,
         )
         from .tools.system_tools import (
             SystemStatusTool, ServiceRestartTool,
             LogAnalysisTool, ProcessListTool, HealthCheckTool,
+            CodebaseSearchTool, GitHistoryTool, AutoHealTool,
         )
         from .tools.trading_tools import (
             GetPositionsTool, GetWalletPerformanceTool,
@@ -235,12 +237,19 @@ class HedgehogBrain:
             TelegramEditMessageTool, TelegramGetUpdatesTool,
         )
 
-        # Register all tools
+        # Register all tools - schema_discovery first for AI to use
         tools = [
+            # Schema discovery FIRST - always check before querying
+            SchemaDiscoveryTool,
+            # Database tools
             DatabaseQueryTool, DatabaseWriteTool, WalletStatsTool, PositionStatsTool,
+            # System tools - including new smart tools
             SystemStatusTool, ServiceRestartTool, LogAnalysisTool, ProcessListTool,
-            HealthCheckTool, GetPositionsTool, GetWalletPerformanceTool,
+            HealthCheckTool, CodebaseSearchTool, GitHistoryTool, AutoHealTool,
+            # Trading tools
+            GetPositionsTool, GetWalletPerformanceTool,
             GetTokenInfoTool, GetTradeHistoryTool, GetMarketOverviewTool,
+            # Telegram tools
             TelegramSendTool, TelegramNotifyAdminTool, TelegramEditMessageTool,
             TelegramGetUpdatesTool,
         ]
@@ -251,30 +260,19 @@ class HedgehogBrain:
         logger.info(f"Registered {len(self.tools.get_all())} tools")
 
     def _build_system_prompt(self) -> str:
-        """Build the system prompt."""
-        return """You are Hedgehog, the AI brain for SoulWinners trading system.
+        """Build the system prompt - CONCISE responses only."""
+        return """You are Hedgehog, autonomous AI operator for SoulWinners trading system.
 
-Your Role:
-- Monitor Solana meme coin trading activity
-- Analyze elite wallet positions
-- Maintain system health
-- Respond to admin commands via Telegram
+RULES:
+1. MAX 3-4 lines unless asked for detail
+2. Don't explain what you're doing - just do it and report results
+3. Use schema_discovery BEFORE querying unknown tables
+4. Auto-execute SAFE actions, request approval for MODERATE
+5. Bullet points only when listing multiple items
 
-Guidelines:
-1. Be concise and action-oriented
-2. Use tools to gather information
-3. Auto-execute SAFE actions
-4. Request approval for MODERATE actions
-5. Never execute DESTRUCTIVE actions
-6. Always log important actions
-7. Notify admin of significant events
+STYLE: Direct. Technical. No filler. Results only.
 
-Response Format:
-- Keep responses under 500 chars for Telegram
-- Use emojis sparingly but appropriately
-- Be direct and technical
-
-Available Tools: {tools}"""
+Tools: {tools}"""
 
     async def process_message(
         self,
@@ -950,28 +948,88 @@ _Or just ask me in natural language!_
     # =========================================================================
 
     async def run_autonomous_check(self) -> List[str]:
-        """Run autonomous health check and self-healing."""
+        """Run autonomous health check, log analysis, and self-healing every 5 min."""
         if self.paused:
             return []
 
         actions = []
+        alerts = []
 
-        # Check service health
+        # 1. Check service health
         health = await self.health.run_full_health_check()
 
         if health["overall"] != "healthy":
-            # Self-heal
             heal_actions = await self.health.self_heal()
             actions.extend(heal_actions)
+            if health["overall"] == "critical":
+                alerts.append(f"🚨 CRITICAL: System {health['overall']}")
 
-            # Notify admin
+        # 2. Proactive log analysis - check for new errors
+        log_tool = self.tools.get("log_analysis")
+        if log_tool:
+            result = await log_tool.run(log_file="bot.log", lines=100, level="ERROR")
+            if result.success:
+                error_count = result.data.get("counts", {}).get("ERROR", 0)
+                if error_count > 10:
+                    alerts.append(f"⚠️ High error rate: {error_count} errors in last 100 lines")
+                    # Try to diagnose
+                    recent_errors = result.data.get("recent_entries", [])[:3]
+                    if recent_errors:
+                        actions.append(f"Detected errors: {recent_errors[0][:50]}...")
+
+        # 3. Auto-heal common issues
+        heal_tool = self.tools.get("auto_heal")
+        if heal_tool:
+            result = await heal_tool.run(check_only=False)
+            if result.success:
+                fixes = result.data.get("fixes_applied", [])
+                if fixes:
+                    actions.extend(fixes)
+                    self.action_logger.log(
+                        "auto_heal",
+                        f"Applied {len(fixes)} auto-fixes",
+                        details={"fixes": fixes}
+                    )
+
+        # 4. Check database health
+        db_tool = self.tools.get("health_check")
+        if db_tool:
+            result = await db_tool.run()
+            if result.success:
+                services = result.data.get("services", {})
+                for svc, status in services.items():
+                    if status.get("status") not in ["healthy", "not_running"]:
+                        alerts.append(f"⚠️ {svc}: {status.get('status')}")
+
+        # 5. Send consolidated alert if needed (only important things)
+        if alerts:
             await self.send_admin_notification(
-                f"⚠️ System {health['overall']}\n\n" +
-                "\n".join(f"• {a}" for a in heal_actions),
-                level="warning",
+                "\n".join(alerts) + ("\n\nAuto-fixed: " + ", ".join(actions) if actions else ""),
+                level="warning" if "CRITICAL" not in str(alerts) else "critical",
+            )
+
+        # Log autonomous check
+        if actions:
+            self.action_logger.log(
+                "autonomous_check",
+                f"Completed: {len(actions)} actions",
+                details={"actions": actions, "alerts": alerts}
             )
 
         return actions
+
+    async def run_proactive_monitoring(self):
+        """Background task: check logs and health every 5 minutes."""
+        while not self.paused:
+            try:
+                actions = await self.run_autonomous_check()
+                if actions:
+                    logger.info(f"Proactive check completed: {len(actions)} actions")
+            except Exception as e:
+                logger.error(f"Proactive monitoring error: {e}")
+
+            # Wait 5 minutes
+            await asyncio.sleep(300)
 
     async def send_admin_notification(
         self,

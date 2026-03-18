@@ -33,6 +33,7 @@ from flask import Flask, request, jsonify
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
+from ml.gated_alerts import MLGatedAlerts
 from database import get_connection
 from bot.lifecycle_tracker import get_lifecycle_tracker, should_track_position
 

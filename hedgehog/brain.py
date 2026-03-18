@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -905,6 +906,9 @@ _Or just ask me in natural language!_
         # Get tool schemas for AI to use
         tool_schemas = [t.to_openai_schema() for t in self.tools.get_all()]
 
+        logger.info(f"Processing AI query: {question[:100]}...")
+        logger.debug(f"Available tools: {[t['name'] for t in tool_schemas]}")
+
         try:
             response, metadata = await self.router.call(
                 task_type=task_type,
@@ -922,14 +926,24 @@ _Or just ask me in natural language!_
                     "model": metadata.get("model_choice"),
                     "cost": metadata.get("cost_usd"),
                     "escalated": metadata.get("escalated"),
+                    "tool_calls": metadata.get("tool_calls", []),
+                    "iterations": metadata.get("iterations", 1),
                 },
             )
 
-            return response or "🦔 I couldn't process that."
+            logger.info(f"AI response received: {len(response or '')} chars, "
+                       f"tools_used={[tc.get('name') for tc in metadata.get('tool_calls', [])]}")
+
+            if not response:
+                logger.warning(f"Empty response from AI. Metadata: {metadata}")
+                return "🦔 I processed your request but got no response. Check the logs."
+
+            return response
 
         except Exception as e:
             logger.error(f"AI query failed: {e}")
-            return f"🦔 Error: {str(e)[:100]}"
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
+            return f"🦔 Error: {str(e)[:200]}"
 
     # =========================================================================
     # AUTONOMOUS OPERATIONS

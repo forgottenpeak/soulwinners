@@ -50,7 +50,7 @@ class HedgehogConfig:
     primary_model: AIModelConfig = field(default_factory=lambda: AIModelConfig(
         provider="openai",
         model="gpt-4o-mini",
-        api_key="os.getenv("OPENAI_API_KEY")",
+        api_key=os.getenv("OPENAI_API_KEY", ""),
         cost_per_1k_input=0.00015,   # $0.15/1M tokens
         cost_per_1k_output=0.0006,   # $0.60/1M tokens
         max_tokens=1024,
@@ -61,7 +61,7 @@ class HedgehogConfig:
     secondary_model: AIModelConfig = field(default_factory=lambda: AIModelConfig(
         provider="anthropic",
         model="claude-sonnet-4-20250514",
-        api_key="os.getenv("ANTHROPIC_API_KEY")",
+        api_key=os.getenv("ANTHROPIC_API_KEY", ""),
         cost_per_1k_input=0.003,     # $3/1M tokens
         cost_per_1k_output=0.015,    # $15/1M tokens
         max_tokens=2048,

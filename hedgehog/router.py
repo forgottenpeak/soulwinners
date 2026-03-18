@@ -17,12 +17,14 @@ Routing Logic:
 import json
 import logging
 import time
+import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, date
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from .config import HedgehogConfig, get_config, AIModelConfig
+from .tools.base import get_registry, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -290,11 +292,11 @@ class AIRouter:
 
         try:
             if decision.model == ModelChoice.GPT:
-                response, metadata = await self._call_openai(
+                response, metadata = await self._call_openai_with_tools(
                     system_prompt, user_prompt, tools
                 )
             else:
-                response, metadata = await self._call_anthropic(
+                response, metadata = await self._call_anthropic_with_tools(
                     system_prompt, user_prompt, tools
                 )
 
@@ -309,11 +311,12 @@ class AIRouter:
 
         except Exception as e:
             logger.error(f"API call failed: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
 
             # Try fallback if primary fails
             if decision.model == ModelChoice.GPT and self._anthropic_client:
                 logger.warning("GPT failed - falling back to Claude")
-                return await self._call_anthropic(system_prompt, user_prompt, tools)
+                return await self._call_anthropic_with_tools(system_prompt, user_prompt, tools)
 
             raise
 
@@ -442,6 +445,333 @@ class AIRouter:
             "output_tokens": output_tokens,
             "cost_usd": cost,
             "tool_calls": tool_calls,
+        }
+
+    async def _execute_tool_calls(
+        self,
+        tool_calls: List[Dict],
+    ) -> List[Dict]:
+        """
+        Execute tool calls and return results.
+
+        Args:
+            tool_calls: List of {"name": str, "arguments": dict}
+
+        Returns:
+            List of {"name": str, "result": str, "success": bool}
+        """
+        registry = get_registry()
+        results = []
+
+        for tc in tool_calls:
+            tool_name = tc["name"]
+            arguments = tc["arguments"]
+
+            logger.info(f"Executing tool: {tool_name} with args: {arguments}")
+
+            tool = registry.get(tool_name)
+            if not tool:
+                logger.error(f"Tool not found: {tool_name}")
+                results.append({
+                    "name": tool_name,
+                    "result": f"Error: Tool '{tool_name}' not found",
+                    "success": False,
+                })
+                continue
+
+            try:
+                result: ToolResult = await tool.run(**arguments)
+
+                if result.success:
+                    # Format successful result
+                    result_str = json.dumps(result.data, default=str, indent=2)
+                    logger.info(f"Tool {tool_name} succeeded: {result_str[:200]}...")
+                else:
+                    result_str = f"Error: {result.error}"
+                    logger.warning(f"Tool {tool_name} failed: {result.error}")
+
+                results.append({
+                    "name": tool_name,
+                    "result": result_str,
+                    "success": result.success,
+                })
+
+            except Exception as e:
+                logger.error(f"Tool {tool_name} exception: {e}")
+                logger.error(traceback.format_exc())
+                results.append({
+                    "name": tool_name,
+                    "result": f"Error: {str(e)}",
+                    "success": False,
+                })
+
+        return results
+
+    async def _call_openai_with_tools(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        tools: Optional[List[Dict]] = None,
+        max_iterations: int = 5,
+    ) -> Tuple[Optional[str], Dict]:
+        """
+        Call OpenAI with tool execution loop.
+
+        Executes tool calls and feeds results back until we get a text response.
+        """
+        if not self._openai_client:
+            raise RuntimeError("OpenAI client not initialized")
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_cost = 0.0
+        all_tool_calls = []
+
+        for iteration in range(max_iterations):
+            kwargs = {
+                "model": self.config.primary_model.model,
+                "messages": messages,
+                "max_tokens": self.config.primary_model.max_tokens,
+                "temperature": self.config.primary_model.temperature,
+            }
+
+            if tools:
+                kwargs["tools"] = [
+                    {"type": "function", "function": t} for t in tools
+                ]
+                kwargs["tool_choice"] = "auto"
+
+            logger.debug(f"OpenAI call iteration {iteration + 1}")
+            response = self._openai_client.chat.completions.create(**kwargs)
+
+            choice = response.choices[0]
+
+            # Track usage
+            input_tokens = response.usage.prompt_tokens
+            output_tokens = response.usage.completion_tokens
+            cost = (
+                input_tokens * self.config.primary_model.cost_per_1k_input / 1000 +
+                output_tokens * self.config.primary_model.cost_per_1k_output / 1000
+            )
+            total_input_tokens += input_tokens
+            total_output_tokens += output_tokens
+            total_cost += cost
+
+            # Check if we have tool calls
+            if choice.message.tool_calls:
+                # Extract tool calls
+                tool_calls = []
+                for tc in choice.message.tool_calls:
+                    tool_calls.append({
+                        "id": tc.id,
+                        "name": tc.function.name,
+                        "arguments": json.loads(tc.function.arguments),
+                    })
+
+                all_tool_calls.extend(tool_calls)
+                logger.info(f"Got {len(tool_calls)} tool calls: {[tc['name'] for tc in tool_calls]}")
+
+                # Execute tools
+                tool_results = await self._execute_tool_calls(tool_calls)
+
+                # Add assistant message with tool calls
+                messages.append({
+                    "role": "assistant",
+                    "content": choice.message.content,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            }
+                        }
+                        for tc in choice.message.tool_calls
+                    ]
+                })
+
+                # Add tool results
+                for tc, result in zip(tool_calls, tool_results):
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": result["result"],
+                    })
+
+                # Continue loop to get final response
+                continue
+
+            # No tool calls - we have our final response
+            text = choice.message.content or ""
+
+            # Update usage stats
+            self.usage.gpt_calls += 1
+            self.usage.gpt_input_tokens += total_input_tokens
+            self.usage.gpt_output_tokens += total_output_tokens
+            self.usage.gpt_cost_usd += total_cost
+
+            logger.debug(f"GPT call complete: {total_input_tokens}+{total_output_tokens} tokens, ${total_cost:.4f}")
+
+            return text, {
+                "model": "gpt-4o-mini",
+                "input_tokens": total_input_tokens,
+                "output_tokens": total_output_tokens,
+                "cost_usd": total_cost,
+                "tool_calls": all_tool_calls,
+                "iterations": iteration + 1,
+            }
+
+        # Max iterations reached
+        logger.warning("Max tool iterations reached")
+        return "I executed the requested tools but couldn't form a final response.", {
+            "model": "gpt-4o-mini",
+            "input_tokens": total_input_tokens,
+            "output_tokens": total_output_tokens,
+            "cost_usd": total_cost,
+            "tool_calls": all_tool_calls,
+            "iterations": max_iterations,
+            "max_iterations_reached": True,
+        }
+
+    async def _call_anthropic_with_tools(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        tools: Optional[List[Dict]] = None,
+        max_iterations: int = 5,
+    ) -> Tuple[Optional[str], Dict]:
+        """
+        Call Anthropic with tool execution loop.
+
+        Executes tool calls and feeds results back until we get a text response.
+        """
+        if not self._anthropic_client:
+            raise RuntimeError("Anthropic client not initialized")
+
+        messages = [{"role": "user", "content": user_prompt}]
+
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_cost = 0.0
+        all_tool_calls = []
+
+        for iteration in range(max_iterations):
+            kwargs = {
+                "model": self.config.secondary_model.model,
+                "max_tokens": self.config.secondary_model.max_tokens,
+                "system": system_prompt,
+                "messages": messages,
+            }
+
+            if tools:
+                # Convert OpenAI schema to Anthropic schema
+                anthropic_tools = []
+                for t in tools:
+                    anthropic_tools.append({
+                        "name": t["name"],
+                        "description": t.get("description", ""),
+                        "input_schema": t.get("parameters", {}),
+                    })
+                kwargs["tools"] = anthropic_tools
+
+            logger.debug(f"Anthropic call iteration {iteration + 1}")
+            response = self._anthropic_client.messages.create(**kwargs)
+
+            # Track usage
+            input_tokens = response.usage.input_tokens
+            output_tokens = response.usage.output_tokens
+            cost = (
+                input_tokens * self.config.secondary_model.cost_per_1k_input / 1000 +
+                output_tokens * self.config.secondary_model.cost_per_1k_output / 1000
+            )
+            total_input_tokens += input_tokens
+            total_output_tokens += output_tokens
+            total_cost += cost
+
+            # Parse response
+            text_parts = []
+            tool_calls = []
+            tool_use_blocks = []
+
+            for content in response.content:
+                if content.type == "text":
+                    text_parts.append(content.text)
+                elif content.type == "tool_use":
+                    tool_calls.append({
+                        "id": content.id,
+                        "name": content.name,
+                        "arguments": content.input,
+                    })
+                    tool_use_blocks.append(content)
+
+            # Check if we have tool calls
+            if tool_calls:
+                all_tool_calls.extend(tool_calls)
+                logger.info(f"Got {len(tool_calls)} tool calls: {[tc['name'] for tc in tool_calls]}")
+
+                # Execute tools
+                tool_results = await self._execute_tool_calls(tool_calls)
+
+                # Add assistant message
+                messages.append({
+                    "role": "assistant",
+                    "content": response.content,
+                })
+
+                # Add tool results
+                tool_result_content = []
+                for tc, result in zip(tool_calls, tool_results):
+                    tool_result_content.append({
+                        "type": "tool_result",
+                        "tool_use_id": tc["id"],
+                        "content": result["result"],
+                    })
+
+                messages.append({
+                    "role": "user",
+                    "content": tool_result_content,
+                })
+
+                # Continue loop if stop_reason is tool_use
+                if response.stop_reason == "tool_use":
+                    continue
+
+            # No more tool calls - we have our final response
+            text = " ".join(text_parts)
+
+            # Update usage stats
+            self.usage.claude_calls += 1
+            self.usage.claude_input_tokens += total_input_tokens
+            self.usage.claude_output_tokens += total_output_tokens
+            self.usage.claude_cost_usd += total_cost
+
+            logger.debug(f"Claude call complete: {total_input_tokens}+{total_output_tokens} tokens, ${total_cost:.4f}")
+
+            return text, {
+                "model": "claude-sonnet-4",
+                "input_tokens": total_input_tokens,
+                "output_tokens": total_output_tokens,
+                "cost_usd": total_cost,
+                "tool_calls": all_tool_calls,
+                "iterations": iteration + 1,
+            }
+
+        # Max iterations reached
+        logger.warning("Max tool iterations reached")
+        return "I executed the requested tools but couldn't form a final response.", {
+            "model": "claude-sonnet-4",
+            "input_tokens": total_input_tokens,
+            "output_tokens": total_output_tokens,
+            "cost_usd": total_cost,
+            "tool_calls": all_tool_calls,
+            "iterations": max_iterations,
+            "max_iterations_reached": True,
         }
 
     def get_usage_summary(self) -> Dict:

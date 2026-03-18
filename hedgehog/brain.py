@@ -24,7 +24,10 @@ from .memory.store import MemoryStore, Decision, Error, Fix, get_memory_store
 from .monitoring.events import Event, EventType, EventDetector, get_event_detector
 from .monitoring.health import HealthMonitor, get_health_monitor
 from .safety.classifier import SafetyClassifier, ApprovalStatus, get_safety_classifier
-from .tools.base import Tool, ToolResult, ToolRegistry, SafetyLevel, get_registry
+from .tools.base import (
+    Tool, ToolResult, ToolRegistry, SafetyLevel, get_registry,
+    run_tool_with_timeout, DEFAULT_TOOL_TIMEOUT
+)
 
 logger = logging.getLogger(__name__)
 

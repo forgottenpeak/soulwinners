@@ -3,15 +3,51 @@ Base Tool Classes
 
 Foundation for all Hedgehog tools with safety classification and auditing.
 """
+import asyncio
 import json
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Type
+from functools import wraps
+from typing import Any, Callable, Dict, List, Optional, Type
 
 logger = logging.getLogger(__name__)
+
+# Default timeout for tool executions (seconds)
+DEFAULT_TOOL_TIMEOUT = 10
+
+
+def with_timeout(seconds: float = DEFAULT_TOOL_TIMEOUT):
+    """
+    Decorator to add timeout to async tool functions.
+
+    If the function times out, returns a ToolResult with timeout error
+    so the AI can still respond gracefully.
+
+    Args:
+        seconds: Timeout in seconds (default: 10)
+
+    Usage:
+        @with_timeout(15)
+        async def my_slow_tool(...):
+            ...
+    """
+    def decorator(func: Callable):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            try:
+                return await asyncio.wait_for(func(*args, **kwargs), timeout=seconds)
+            except asyncio.TimeoutError:
+                logger.warning(f"Tool {func.__name__} timed out after {seconds}s")
+                return ToolResult(
+                    success=False,
+                    error=f"Tool timed out after {seconds}s",
+                    metadata={"timeout": True, "timeout_seconds": seconds}
+                )
+        return wrapper
+    return decorator
 
 
 class SafetyLevel(Enum):
@@ -66,12 +102,14 @@ class Tool(ABC):
     - description: What the tool does
     - safety_level: Risk classification
     - parameters_schema: JSON schema for parameters
+    - timeout: Execution timeout in seconds (default: 10)
     """
 
     name: str = "base_tool"
     description: str = "Base tool - do not use directly"
     safety_level: SafetyLevel = SafetyLevel.SAFE
     parameters_schema: Dict[str, Any] = {}
+    timeout: float = DEFAULT_TOOL_TIMEOUT  # Timeout in seconds
 
     def __init__(self, config=None):
         """Initialize tool with optional config."""
@@ -120,9 +158,10 @@ class Tool(ABC):
 
     async def run(self, **params) -> ToolResult:
         """
-        Run tool with validation and timing.
+        Run tool with validation, timing, and timeout.
 
         This is the main entry point for tool execution.
+        Automatically applies timeout to prevent hanging.
         """
         import time
 
@@ -134,12 +173,27 @@ class Tool(ABC):
                 error=validation_error,
             )
 
-        # Execute with timing
+        # Execute with timing and timeout
         start_time = time.time()
         try:
-            result = await self.execute(**params)
+            # Apply timeout to prevent hanging
+            result = await asyncio.wait_for(
+                self.execute(**params),
+                timeout=self.timeout
+            )
             result.execution_time_ms = (time.time() - start_time) * 1000
             return result
+        except asyncio.TimeoutError:
+            elapsed_ms = (time.time() - start_time) * 1000
+            self.logger.warning(
+                f"Tool {self.name} timed out after {self.timeout}s"
+            )
+            return ToolResult(
+                success=False,
+                error=f"Tool timed out after {self.timeout}s. The operation took too long.",
+                execution_time_ms=elapsed_ms,
+                metadata={"timeout": True, "timeout_seconds": self.timeout}
+            )
         except Exception as e:
             self.logger.error(f"Tool execution error: {e}", exc_info=True)
             return ToolResult(
@@ -225,3 +279,60 @@ def register_tool(tool_class: Type[Tool], config=None) -> Tool:
     tool = tool_class(config=config)
     get_registry().register(tool)
     return tool
+
+
+async def run_tool_with_timeout(
+    tool: Tool,
+    timeout: Optional[float] = None,
+    **params
+) -> ToolResult:
+    """
+    Run a tool with explicit timeout override.
+
+    This is useful when you need a different timeout than
+    the tool's default for a specific call.
+
+    Args:
+        tool: The tool to execute
+        timeout: Custom timeout in seconds (uses tool.timeout if None)
+        **params: Parameters to pass to the tool
+
+    Returns:
+        ToolResult with success/failure and data or error message
+    """
+    import time
+
+    effective_timeout = timeout if timeout is not None else tool.timeout
+
+    # Validate parameters
+    validation_error = tool.validate_params(params)
+    if validation_error:
+        return ToolResult(
+            success=False,
+            error=validation_error,
+        )
+
+    start_time = time.time()
+    try:
+        result = await asyncio.wait_for(
+            tool.execute(**params),
+            timeout=effective_timeout
+        )
+        result.execution_time_ms = (time.time() - start_time) * 1000
+        return result
+    except asyncio.TimeoutError:
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.warning(f"Tool {tool.name} timed out after {effective_timeout}s")
+        return ToolResult(
+            success=False,
+            error=f"Tool timed out after {effective_timeout}s. The operation took too long.",
+            execution_time_ms=elapsed_ms,
+            metadata={"timeout": True, "timeout_seconds": effective_timeout}
+        )
+    except Exception as e:
+        logger.error(f"Tool execution error: {e}", exc_info=True)
+        return ToolResult(
+            success=False,
+            error=str(e),
+            execution_time_ms=(time.time() - start_time) * 1000,
+        )
